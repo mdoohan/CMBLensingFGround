@@ -52,6 +52,12 @@ function sample_x_z(prob::CMBLensingMuseProblem, rng::AbstractRNG, θ)
     (;x, z)
 end
 
+function sample_x_z(prob::CMBLensingMuseProblem{FGroundDataSet}, rng::AbstractRNG, θ) 
+        s = simulate(rng, prob.ds_for_sims, θ = CMBLensing.mergeθ(prob, θ))
+        (;x=s.d, z=(;s.f, s.ϕ, s.g))
+end
+
+
 function ẑ_at_θ(prob::CMBLensingMuseProblem, d, zguess, θ; ∇z_logLike_atol=nothing)
     @unpack ds = prob
     Ωstart = delete(NamedTuple(zguess), :f)
