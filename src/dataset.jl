@@ -357,6 +357,97 @@ function load_sim(;
     
 end
 
+# make foreground dataset with lensing covariance parameterised with bandpowers
+
+function make_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple, ForeGroundParams::NamedTuple, KeepFields::Bool)
+    # sim = (; Cℓs::NamedTuple, rng_params::NamedTuple) where Cℓs = camb(θ) and rng_params = (;rng,seed)
+    # Cℓn = noiseCℓs()
+    # MapParams = (;θpix,Nside)
+    # FieldParams = (;Aϕ::Vector{Float32}, ℓedges_ϕ::::Vector{Float32})
+    # ForeGroundParams = (;A3k::Float32, ΔA3k::Float32)  Just Poisson for now. 
+    # KeepFields = true/false    Keep (;f,ϕ,g) or not
+    
+    ##################### Type
+    T = Float32
+    ##################### Cℓs and rng
+    Cℓs = sim.Cℓs
+    sim.rng_params == nothing ? (RNG = nothing) : (rng_params = sim.rng_params; RNG = rng_params.rng(rng_params.seed))
+    ##################### Map params
+    θpix = MapParams.θpix
+    Nside = MapParams.Nside
+    ###################### check bin limits against map dimensions
+    ℓmin = 2*180/(Nside*(θpix/60)); ℓedges_ϕ = FieldParams.ℓedges_ϕ # Simulated power spectra have lower ℓ = 2ℓmin
+    #ℓmin > ℓedges_ϕ[1] ? (println("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])"); ) : ()
+    ℓmax = 180/(θpix/60)
+    #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
+    ℓend = floor(Int32,ℓedges_ϕ[end])
+    ################### Baseline Sim from CMBLensing
+    @unpack ds = load_sim(
+        rng = RNG,
+        θpix  = θpix,       # size of the pixels in arcmin
+        Nside = Nside,     # number of pixels per side in the map
+        #fiducial_θ = (;Aϕ=Aϕ),
+        Cℓ = Cℓs,
+        Cℓn = Cℓn,
+        #μKarcminT =2,
+        T     = T, # Float32 or Float64 (former is ~twice as fast)
+        pol   = :I,       # :I for Intensity, :P for polarization, or :IP for both
+        bandpass_mask = LowPass(ℓend)
+    );
+    
+    ###########################  Poisson Covariance
+    
+    ####### Fiducial Amplitude
+    A3k = ForeGroundParams.A3k
+    ΔA3k = ForeGroundParams.ΔA3k
+    ######## Power Spec Template
+    ℓs = T.(Cℓs.unlensed_scalar.TT.ℓ)
+    Dl_fg0 = (ℓs./3000f0).^2
+    Cl2Dl = ℓs.*(ℓs .+ 1)./2π
+    Cl_poisson0_temp = Dl_fg0./Cl2Dl
+    ######## Convert to Interpolated Cls for Cℓ_to_Cov
+    Cl_poisson0_interp = InterpolatedCℓs(ℓs,Cl_poisson0_temp)
+    ######## Convert to Diagonal LambertFourier 
+    ####### parameterize the Covariance for bandpowers
+    proj = ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator =(0. ,90 ,0.))
+    Cf_poisson0 = Cℓ_to_Cov(:I,proj, Cl_poisson0_interp)
+
+    ######## Convert to a Param dependent operator
+    Cf_poisson = let Cf_poisson0 = Cf_poisson0
+        ParamDependentOp( (;A3k = 15.35f0)->A3k*Cf_poisson0)
+    end
+    ###########################  Bandpower dependent Cϕ 
+
+    Aϕₜᵣᵤₑ = FieldParams.Aϕ # scalar for now
+    nbins_ϕ = length(ℓedges_ϕ)-1
+    #θ = T.(ComponentArray(;Aϕ=Aϕₜᵣᵤₑ))
+    fiducial_Cℓϕ = Cℓs.unlensed_total.ϕϕ*Aϕₜᵣᵤₑ
+    Cϕₜᵣᵤₑ = Cℓ_to_Cov(:I, proj,(fiducial_Cℓϕ, ℓedges_ϕ, :Aϕ))
+
+    ########################## Simulate data
+    
+    ######## Initial noise est
+    ######## for hessian pre-conditioner on g
+    ######## Not implemented for now
+    @unpack Nϕ = ds
+    Ng = Nϕ *10^15 
+    ######## Include Cf̃ in dataset
+    Cf̃  = Cℓ_to_Cov(:I, ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator =(0. ,90 ,0.)),Cℓs.total.TT)
+
+    ######
+    fg_ds = FGroundDataSet(;Cf=ds.Cf, Cn=ds.Cn, Cϕ=Cϕₜᵣᵤₑ, M=ds.M, B=ds.B, Cg=Cf_poisson(), Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
+    KeepFields == true ?  (@unpack f,g,ϕ,d = simulate(RNG,fg_ds)) : (@unpack d = simulate(RNG,fg_ds))
+    fg_ds.d = d;
+    
+
+
+    
+    
+    KeepFields == true ? (return (;fg_ds,f,g,ϕ)) : (return (;fg_ds))
+end
+
+
+
 
 function load_nolensing_sim(; 
     lensed_covariance = false, 
