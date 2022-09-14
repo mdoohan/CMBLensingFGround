@@ -359,7 +359,7 @@ end
 
 # make foreground dataset with lensing covariance parameterised with bandpowers
 
-function make_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple, ForeGroundParams::NamedTuple, KeepFields::Bool)
+function load_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple, ForeGroundParams::NamedTuple, KeepFields::Bool)
     # sim = (; Cℓs::NamedTuple, rng_params::NamedTuple) where Cℓs = camb(θ) and rng_params = (;rng,seed)
     # Cℓn = noiseCℓs()
     # MapParams = (;θpix,Nside)
