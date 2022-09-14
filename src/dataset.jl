@@ -57,6 +57,23 @@ end
     Nϕ = nothing     # some estimate of the ϕ noise, used in several places for preconditioning
 end
 
+@composite Base.@kwdef mutable struct FGroundDataSet<: DataSet
+    BaseDataSet...
+    Cg               #** foreground covariance, just poisson for now **#
+    Ng               # Initial noise estimate for hessian preconditioner
+end
+
+@fwdmodel function (ds::FGroundDataSet)(; f, ϕ, g, θ=(;), d=ds.d)
+    @unpack Cg, Cf, Cϕ, Cn, L, M, B = ds
+    f ~ MvNormal(0, Cf(θ))
+    ϕ ~ MvNormal(0, Cϕ(θ))
+    g ~ MvNormal(0, Cg(θ))
+    f̃ ← L(ϕ) * f
+    μ = M(θ) * (B(θ) * (f̃ + g))
+    d ~ MvNormal(μ, Cn(θ))
+end
+
+
 @fwdmodel function (ds::BaseDataSet)(; f, ϕ, θ=(;), d=ds.d)
     @unpack Cf, Cϕ, Cn, L, M, B = ds
     f ~ MvNormal(0, Cf(θ))
@@ -135,6 +152,10 @@ function Hessian_logpdf_preconditioner(Ω::Val{(:ϕ°,)}, ds::DataSet)
     Diagonal(FieldTuple(ϕ°=diag(pinv(Cϕ)+pinv(Nϕ))))
 end
 
+function Hessian_logpdf_preconditioner(Ω::Val{(:ϕ°,:g)}, ds::FGroundDataSet)
+    @unpack Cg, Cϕ, Nϕ = ds
+    Diagonal(FieldTuple(ϕ°=diag(pinv(Cϕ)+pinv(Nϕ)), g=diag(pinv(Cg))))
+end
 
 
 @doc doc"""
