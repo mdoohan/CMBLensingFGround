@@ -57,7 +57,7 @@ end
     Nϕ = nothing     # some estimate of the ϕ noise, used in several places for preconditioning
 end
 
-@composite Base.@kwdef mutable struct FGroundDataSet <: DataSet
+@composite @kwdef mutable struct FGroundDataSet <: DataSet
     BaseDataSet...
     Cg               #** foreground covariance, just poisson for now **#
     Ng               # Initial noise estimate for hessian preconditioner
