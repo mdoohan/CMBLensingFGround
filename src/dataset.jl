@@ -376,7 +376,12 @@ function load_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple
     θpix = MapParams.θpix
     Nside = MapParams.Nside
     ###################### check bin limits against map dimensions
-    ℓmin = 2*180/(Nside*(θpix/60)); ℓedges_ϕ = FieldParams.ℓedges_ϕ # Simulated power spectra have lower ℓ = 2ℓmin
+    try
+        N = findmax(Nside)[1]
+    catch
+        N = Nside
+    end
+    ℓmin = 2*180/(N*(θpix/60)); ℓedges_ϕ = FieldParams.ℓedges_ϕ # Simulated power spectra have lower ℓ = 2ℓmin
     #ℓmin > ℓedges_ϕ[1] ? (println("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])"); ) : ()
     ℓmax = 180/(θpix/60)
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
