@@ -363,7 +363,7 @@ function load_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple
     # sim = (; Cℓs::NamedTuple, rng_params::NamedTuple) where Cℓs = camb(θ) and rng_params = (;rng,seed)
     # Cℓn = noiseCℓs()
     # MapParams = (;θpix,Nside)
-    # FieldParams = (;Aϕ::Vector{Float32}, ℓedges_ϕ::::Vector{Float32})
+    # FieldParams = (;Aϕ::Vector{Float32}, ℓedges_ϕ::::Vector{Float32}, ℓϕ_max::Int)
     # ForeGroundParams = (;A3k::Float32, ΔA3k::Float32)  Just Poisson for now. 
     # KeepFields = true/false    Keep (;f,ϕ,g) or not
     
@@ -386,6 +386,8 @@ function load_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple
     ℓmax = 180/(θpix/60)
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
     ℓend = floor(Int32,ℓedges_ϕ[end])
+
+    ℓϕ_max = FieldParams.ℓϕ_max
     ################### Baseline Sim from CMBLensing
     @unpack ds = load_sim(
         rng = RNG,
@@ -397,7 +399,7 @@ function load_fground_ds(sim,Cℓn,MapParams::NamedTuple,FieldParams::NamedTuple
         #μKarcminT =2,
         T     = T, # Float32 or Float64 (former is ~twice as fast)
         pol   = :I,       # :I for Intensity, :P for polarization, or :IP for both
-        bandpass_mask = LowPass(ℓend)
+        bandpass_mask = LowPass(ℓϕ_max)
     );
     
     ###########################  Poisson Covariance
