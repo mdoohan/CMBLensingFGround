@@ -399,73 +399,69 @@ function load_fground_ds(;
     L = LenseFlow,
 
     ℓedges_ϕ = [150.0, 185.78984, 230.11911, 285.0253, 353.03204, 437.2651, 541.5961, 670.8204, 830.87744, 1029.1239, 1274.6719, 1578.8073, 1955.509, 2422.0916, 3000.0],
+    ℓedges_g = nothing,
     A3k = 15.35f0,
-    fg_spectrum_shape = nothing # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
-
+    fg_spectrum_shape = nothing, # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
+    Ng = nothing ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
 )
 
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
     ###################### check bin limits against map dimensions
-    try
-        N = findmax(Nside)[1]
-    catch
-        N = Nside
-    end
+    length(Nside) == 1 ? N=Nside : N = findmax(Nside)[1]
     ℓmin = 2*180/(N*(θpix/60))# Simulated power spectra have lower ℓ = 2ℓmin
     ℓmin > ℓedges_ϕ[1] ? @warn("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])")  : ()
     ℓmax = 180/(θpix/60)
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
     ℓend = floor(Int32,ℓedges_ϕ[end])
 
-    
+    seed == nothing ? RNG=MersenneTwister(14) : RNG=MersenneTwister(seed) 
+
     ################### Baseline Sim from CMBLensing
-    @unpack ds = load_sim(
+    @unpack ds,proj = load_sim(
         # basic configuration
-    θpix,
-    Nside,
-    pol,
-    T,
-    storage,
-    rotator,
-    Nbatch,
+    θpix=θpix,
+    Nside=Nside,
+    pol=pol,
+    T=T,
+    storage=storage,
+    rotator=rotator,
+    Nbatch=Nbatch,
     
     # noise parameters, or set Cℓn or even Cn directly
-    μKarcminT,
-    ℓknee,
-    αknee,
-    Cℓn,
-    Cn,
+    μKarcminT=μKarcminT,
+    ℓknee=ℓknee,
+    αknee=αknee,
+    Cℓn=Cℓn,
+    Cn=Cn,
     
     # beam parameters, or set B directly
-    beamFWHM,
-    B, B̂,
+    beamFWHM=beamFWHM,
+    B=B, B̂=B̂,
     
     # mask parameters, or set M directly
-    pixel_mask_kwargs,
-    bandpass_mask,
-    M, M̂,
+    pixel_mask_kwargs=pixel_mask_kwargs,
+    bandpass_mask=bandpass_mask,
+    M=M, M̂=M̂,
 
     # theory
-    Cℓ,
-    fiducial_θ,
-    rfid,
-    
-    seed,
-    rng,
-    D,
-    G,
-    Nϕ_fac,
-    L,
+    Cℓ=Cℓ,
+    fiducial_θ=fiducial_θ,
+    rfid=rfid,
 
-    ℓedges_ϕ
+    rng = RNG,
+    D=D,
+    G=G,
+    Nϕ_fac=Nϕ_fac,
+    L=L
+
     );
     
     ###########################  Poisson Covariance
     
     ######## Default Power Spec Template (flat Cℓ)
     if fg_spectrum_shape == nothing
-        ℓs = T.(Cℓs.unlensed_scalar.TT.ℓ)
+        ℓs = T.(Cℓ.unlensed_scalar.TT.ℓ)
         Dl_fg0 = (ℓs./3000f0).^2
         Cl2Dl = ℓs.*(ℓs .+ 1)./2π
         fg_spectrum_shape = Dl_fg0./Cl2Dl
@@ -473,31 +469,31 @@ function load_fground_ds(;
 
     ######## Convert to Interpolated Cls for Cℓ_to_Cov
     Cl_g_interp = InterpolatedCℓs(ℓs,fg_spectrum_shape)
-    ######## Convert to Diagonal LambertFourier 
-    ####### parameterize the Covariance for bandpowers
-    proj = ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator=rotator)
-    Cg0 = Cℓ_to_Cov(:I,proj, Cl_g_interp)
-
-    ######## Convert to a Param dependent operator
-    Cg0 = let Cg0 = Cg0
-        ParamDependentOp( (;A3k = 15.35f0)->A3k*Cg0)
+    
+    ####### Make Cg dependent on one parameter or bandpowers
+    if ℓedges_g == nothing
+        Cg0 = Cℓ_to_Cov(:I, proj, Cl_g_interp)
+        Cg = let Cg0 = Cg0
+            ParamDependentOp( (;A3k = 15.35f0)->A3k*Cg0)
+        end
+    else
+        Cg = Cℓ_to_Cov(:I, proj,(Cl_g_interp, ℓedges_g, :A3k))
     end
     ###########################  Bandpower dependent Cϕ 
     nbins_ϕ = length(ℓedges_ϕ)-1
-    Cϕ = Cℓ_to_Cov(:I, proj,(Cℓs.unlensed_total.ϕϕ*Aϕₜᵣᵤₑ, ℓedges_ϕ, :Aϕ))
+    Cϕ = Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
 
     ########################## Simulate data
     
     ######## Initial noise est
     ######## for hessian pre-conditioner on g
-    ######## Not implemented for now
     @unpack Nϕ = ds
-    Ng = Nϕ *10^15 
+    Ng == nothing ? Ng=Nϕ*10^15 : ()
     ######## Include Cf̃ in dataset
-    Cf̃  = Cℓ_to_Cov(:I, ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator=rotator),Cℓs.total.TT)
+    Cf̃  = Cℓ_to_Cov(:I, ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator=rotator),Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf=ds.Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cf_poisson(), Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
+    fg_ds = FGroundDataSet(;Cf=ds.Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cg, Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
     @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
     fg_ds.d = d;
     
