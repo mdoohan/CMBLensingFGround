@@ -178,7 +178,16 @@ function MAP_joint(
         end
         # line search
         s = pinv(HΩ°) * ∇Ω°_logpdf
-        αmax = haskey(Ω°,:ϕ°) ? min(2α, get_max_lensing_step(Ω°.ϕ°,s.ϕ°)/2) : 2α
+        if haskey(Ω°,:ϕ°) 
+            try 
+                αmax = min(2α, get_max_lensing_step(Ω°.ϕ°,s.ϕ°)/2) 
+            catch err
+                @warn(err)
+                αmax =  2α
+            end
+        else
+            αmax =  2α
+        end
         T = real(eltype(f))
         soln = @ondemand(Optim.optimize)(T(0), T(αmax), @ondemand(Optim.Brent)(); abs_tol=T(αtol)) do α
             Ω°′ = Ω°+α*s
