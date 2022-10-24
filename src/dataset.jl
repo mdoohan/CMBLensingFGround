@@ -402,7 +402,8 @@ function load_fground_ds(;
     ℓedges_g = nothing,
     A3k = 15.35f0,
     fg_spectrum_shape = nothing, # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
-    Ng = nothing ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
+    Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
+    logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
 
     ℓedges_ϕ = T.(ℓedges_ϕ) 
@@ -498,7 +499,7 @@ function load_fground_ds(;
     fg_ds.d = d;
     
     
-    return (;fg_ds,f,g,ϕ)
+    return (;fg_ds,f,g,ϕ, proj)
 end
 
 
