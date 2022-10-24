@@ -444,16 +444,8 @@ function cov_to_Cℓ(C::DiagOp{<:LambertS0}; kwargs...)
 end
 
 
-######################################################################################################
-############# Reparameterize Cℓϕϕ as 10^(log10Aϕ)*Cℓϕϕ                  ##############################
-############# Note that, as it stands, Cℓϕϕ() = 10*fiducial_Cℓϕϕ        ##############################
-############# We'll fix this later. The line where the "As" parameters  ##############################
-############# are gleaned seems to be the problem. For now, if we       ##############################
-############# define θ₀ ~ (;log10Aϕ=(0,0...)), we'll start the estimate ##############################
-############# close to the fiducial  Cℓϕϕ                               ##############################
-######################################################################################################
-
 # ParamDependentOp covariances scaled by amplitudes in different ℓ-bins
+# Amplitude parameterized by its exponent log10(A)
 function Cℓ_to_Cov_logA(::Val{:I}, proj::ProjLambert{T}, (Cℓ, ℓedges, θname)::Tuple; kwargs...) where {T}
     # we need an @eval here since we want to dynamically select a
     # keyword argument name, θname. the @eval happens into Main rather
@@ -462,7 +454,7 @@ function Cℓ_to_Cov_logA(::Val{:I}, proj::ProjLambert{T}, (Cℓ, ℓedges, θna
     C₀ = diag(Cℓ_to_Cov(:I, proj, Cℓ; kwargs...))
     @eval Main let ℓedges=$((T.(ℓedges))...,), C₀=$C₀
         $ParamDependentOp(function (;$θname=zeros($T,length(ℓedges)-1),_...)
-            As = $preprocess.(Ref((nothing,C₀.metadata)), $T.($ensure1d($θname)))#<------- Fix this!!!
+            As = $preprocess.(Ref((nothing,C₀.metadata)), $T.($ensure1d($θname)))
             CℓI = $Zygote.ignore() do
                 copy(C₀.Il) .* 10 .^zero.(first(As))# gets batching right
             end
