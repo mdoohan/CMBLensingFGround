@@ -482,7 +482,7 @@ function load_fground_ds(;
     end
     ###########################  Bandpower dependent Cϕ 
     nbins_ϕ = length(ℓedges_ϕ)-1
-    logAphi_option ? Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :log10Aϕ)) : Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+    logAphi_option ? Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) : Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
 
     ########################## Simulate data
     
