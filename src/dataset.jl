@@ -491,7 +491,7 @@ function load_fground_ds(;
     @unpack Nϕ = ds
     Ng == nothing ? Ng=Nϕ*10^15 : ()
     ######## Include Cf̃ in dataset
-    Cf̃  = Cℓ_to_Cov(:I, ProjLambert(Nx = Nside, Ny = Nside, θpix = θpix, rotator=rotator),Cℓ.total.TT)
+    Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
     fg_ds = FGroundDataSet(;Cf=ds.Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cg, Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
