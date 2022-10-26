@@ -398,7 +398,7 @@ function load_fground_ds(;
     Nϕ_fac = 2,
     L = LenseFlow,
 
-    ℓedges_ϕ = [150.0, 185.78984, 230.11911, 285.0253, 353.03204, 437.2651, 541.5961, 670.8204, 830.87744, 1029.1239, 1274.6719, 1578.8073, 1955.509, 2422.0916, 3000.0],
+    ℓedges_ϕ = nothing,
     ℓedges_g = nothing,
     A3k = 15.35f0,
     fg_spectrum_shape = nothing, # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
@@ -406,6 +406,7 @@ function load_fground_ds(;
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
 
+    ℓedges_ϕ == nothing ? ( log_edges = range(log(ℓϕ_min),log(ℓϕ_max), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
     ###################### check bin limits against map dimensions
