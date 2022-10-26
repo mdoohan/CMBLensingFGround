@@ -406,7 +406,7 @@ function load_fground_ds(;
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
 
-    ℓedges_ϕ == nothing ? ( log_edges = range(log(ℓϕ_min),log(ℓϕ_max), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
+    ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
     ###################### check bin limits against map dimensions
