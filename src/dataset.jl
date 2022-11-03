@@ -399,13 +399,14 @@ function load_fground_ds(;
     L = LenseFlow,
 
     ℓedges_ϕ = nothing,
+    ℓedges_T = nothing,
     ℓedges_g = nothing,
     A3k = 15.35f0,
     fg_spectrum_shape = nothing, # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
-
+    A3k = T(A3k)
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
@@ -413,7 +414,7 @@ function load_fground_ds(;
     length(Nside) == 1 ? N=Nside : N = findmax(Nside)[1]
     ℓmin = 2*180/(N*(θpix/60))# Simulated power spectra have lower ℓ = 2ℓmin
     ℓmin > ℓedges_ϕ[1] ? @warn("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])")  : ()
-    ℓmax = 180/(θpix/60)
+    ℓmax = (√2)*180/(θpix/60)
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
     ℓend = floor(Int32,ℓedges_ϕ[end])
 
@@ -479,12 +480,12 @@ function load_fground_ds(;
             ParamDependentOp( (;A3k = 15.35f0)->A3k*Cg0)
         end
     else
-        Cg = Cℓ_to_Cov(:I, proj,(Cl_g_interp, ℓedges_g, :A3k))
+        Cg = Cℓ_to_Cov(:I, proj,( A3k*Cl_g_interp, ℓedges_g, :A3k))
     end
-    ###########################  Bandpower dependent Cϕ 
+    ###########################  Bandpower dependent Cϕ and Cf
     nbins_ϕ = length(ℓedges_ϕ)-1
     logAphi_option ? Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) : Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
-
+    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cls.unlensed_total.TT, ℓedges_T, :AT))
     ########################## Simulate data
     
     ######## Initial noise est
@@ -495,7 +496,7 @@ function load_fground_ds(;
     Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf=ds.Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cg, Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
+    fg_ds = FGroundDataSet(;Cf=Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cg, Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
     @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
     fg_ds.d = d;
     
