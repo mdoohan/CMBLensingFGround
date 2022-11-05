@@ -485,7 +485,7 @@ function load_fground_ds(;
     ###########################  Bandpower dependent Cϕ and Cf
     nbins_ϕ = length(ℓedges_ϕ)-1
     logAphi_option ? Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) : Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
-    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cls.unlensed_total.TT, ℓedges_T, :AT))
+    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
     ########################## Simulate data
     
     ######## Initial noise est
