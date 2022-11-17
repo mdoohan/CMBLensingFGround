@@ -396,7 +396,7 @@ function load_fground_ds(;
     D = nothing,
     G = nothing,
     Nϕ_fac = 2,
-    L = LenseFlow,
+    L = LenseFlow{RK4Solver{15}},
 
     ℓedges_ϕ = nothing,
     ℓedges_T = nothing,
@@ -421,43 +421,25 @@ function load_fground_ds(;
     rng == nothing ? RNG=MersenneTwister(14) : RNG=MersenneTwister(seed) 
 
     ################### Baseline Sim from CMBLensing
-    @unpack ds,proj = load_sim(
+    @unpack ds,proj = load_sim(;
         # basic configuration
-    θpix=θpix,
-    Nside=Nside,
-    pol=pol,
-    T=T,
-    storage=storage,
-    rotator=rotator,
-    Nbatch=Nbatch,
+    θpix, Nside, pol, T, storage, rotator, Nbatch,
     
     # noise parameters, or set Cℓn or even Cn directly
-    μKarcminT=μKarcminT,
-    ℓknee=ℓknee,
-    αknee=αknee,
-    Cℓn=Cℓn,
-    Cn=Cn,
+    μKarcminT, ℓknee, αknee, Cℓn, Cn,
     
     # beam parameters, or set B directly
-    beamFWHM=beamFWHM,
-    B=B, B̂=B̂,
+    beamFWHM, B, B̂,
     
     # mask parameters, or set M directly
-    pixel_mask_kwargs=pixel_mask_kwargs,
-    bandpass_mask=bandpass_mask,
-    M=M, M̂=M̂,
+    pixel_mask_kwargs,
+    bandpass_mask,
+    M, M̂,
 
     # theory
-    Cℓ=Cℓ,
-    fiducial_θ=fiducial_θ,
-    rfid=rfid,
+    Cℓ, fiducial_θ, rfid,
 
-    rng = RNG,
-    D=D,
-    G=G,
-    Nϕ_fac=Nϕ_fac,
-    L=L
-
+    rng = RNG, D, G, Nϕ_fac, L
     );
     
     ###########################  Poisson Covariance
@@ -496,7 +478,7 @@ function load_fground_ds(;
     Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf=Cf, Cn=ds.Cn, Cϕ=Cϕ, M=ds.M, B=ds.B, Cg=Cg, Ng=Ng, Cf̃=Cf̃, Nϕ=ds.Nϕ, L = LenseFlow{RK4Solver{15}})
+    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L)
     @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
     fg_ds.d = d;
     
