@@ -292,7 +292,7 @@ function load_sim(;
     if (Cn == nothing); Cn = Cn̂; end
     Cf = ParamDependentOp((;r=r₀,   _...)->(Cfs + (T(r)/r₀)*Cft))
     Cϕ = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(T(Aϕ) * Cϕ₀))
-    
+         
     # data mask
     if (M == nothing)
         Mfourier = Cℓ_to_Cov(pol, proj, ((k==:TE ? 0 : 1) * bandpass_mask.diag.Wℓ for k in ks)...; units=1)
@@ -458,7 +458,7 @@ function load_fground_ds(;
     if ℓedges_g == nothing
         Cg0 = Cℓ_to_Cov(:I, proj, Cl_g_interp)
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;A3k = 15.35f0)->A3k*Cg0)
+            ParamDependentOp( (;A3k=15.35f0, _...)->(T(A3k)*Cg0))
         end
     else
         Cg = Cℓ_to_Cov(:I, proj,( A3k*Cl_g_interp, ℓedges_g, :A3k))
