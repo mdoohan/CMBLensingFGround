@@ -406,7 +406,7 @@ function load_fground_ds(;
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
-    A3k = T(A3k)
+    A3k₀ = T(A3k)
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
@@ -456,7 +456,7 @@ function load_fground_ds(;
     if ℓedges_g == nothing
         Cg0 = Cℓ_to_Cov(:I, proj, Cl_g_interp)
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;A3k=15.35f0, _...)->(T(A3k)*Cg0))
+            ParamDependentOp( (;A3k=A3k₀, _...)->(T(A3k)*Cg0))
         end
     else
         Cg = Cℓ_to_Cov(:I, proj,( A3k*Cl_g_interp, ℓedges_g, :A3k))
