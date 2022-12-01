@@ -445,10 +445,7 @@ function load_fground_ds(;
     
     ######## Default Power Spec Template (flat Cℓ)
     if fg_spectrum_shape == nothing
-        ℓs = T.(Cℓ.unlensed_scalar.TT.ℓ)
-        Dl_fg0 = (ℓs./3000f0).^2
-        Cl2Dl = ℓs.*(ℓs .+ 1)./2π
-        fg_spectrum_shape = Dl_fg0./Cl2Dl
+        fg_spectrum_shape = ones(length(ℓs))
     end
 
     ######## Convert to Interpolated Cls for Cℓ_to_Cov
