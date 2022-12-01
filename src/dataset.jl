@@ -444,6 +444,7 @@ function load_fground_ds(;
     ###########################  Poisson Covariance
     
     ######## Default Power Spec Template (flat Cℓ)
+    ℓs = T.(Cℓ.unlensed_scalar.TT.ℓ)
     if fg_spectrum_shape == nothing
         fg_spectrum_shape = ones(length(ℓs))
     end
