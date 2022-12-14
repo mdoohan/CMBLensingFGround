@@ -462,8 +462,22 @@ function load_fground_ds(;
         Cg = Cℓ_to_Cov(:I, proj,( A3k*Cl_g_interp, ℓedges_g, :A3k))
     end
     ###########################  Bandpower dependent Cϕ and Cf
+    ########################### Mixing matrix G, also depends on Aϕ
+
+    Nϕ=ds.Nϕ # QE noise est : Nϕ=quadratic_estimate(ds).Nϕ / Nϕ_fac
     nbins_ϕ = length(ℓedges_ϕ)-1
-    logAphi_option ? Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) : Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+    if logAphi_option 
+        Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) 
+        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+        logAϕ₀= zeros(nbins_ϕ)
+        fg_ds.G = ParamDependentOp((;logAϕ=logAϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(logAϕ=logAϕ)))))
+    else
+        Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+        Aϕ₀= ones(nbins_ϕ)
+        fg_ds.G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+    end
+
     ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
     ########################## Simulate data
     
