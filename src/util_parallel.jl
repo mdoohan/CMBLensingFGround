@@ -111,7 +111,7 @@ function proc_info()
             " ("*join(info, ", ")*")"
         end
     end
-    @info join(["Processes ($(nprocs())):"; lines], "\n")
+    @info join(["Processes:"; lines], "\n")
 end
 
 
