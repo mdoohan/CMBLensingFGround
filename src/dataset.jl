@@ -398,15 +398,21 @@ function load_fground_ds(;
     Nϕ_fac = 2,
     L = LenseFlow{RK4Solver{15}},
 
+    # Bin edges for fields
     ℓedges_ϕ = nothing,
     ℓedges_T = nothing,
     ℓedges_g = nothing,
-    A3k = 15.35f0,
-    fg_spectrum_shape = nothing, # Template for foreground spectrum. Cℓ_fg = A3k*fg_spectrum_shape
+
+    # Foreground field parameterization
+    # Either supply a spectrum, or specify amplitude, power law index and pivot scale
+    # if ℓedges_g = nothing, Cg will be a ParamDependentOp, where Cg = Cg(Ag, αg)
+    Ag = 1e-5, αg = 0, ℓpivot_fg = 3000,
+    Cℓ_fg = nothing, # Template for foreground spectrum. Cℓ_fg = Ag*fg_spectrum_shape
+
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
-    A3k₀ = T(A3k)
+    
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
 
@@ -441,25 +447,23 @@ function load_fground_ds(;
     rng = RNG, D, G, Nϕ_fac, L
     );
     
-    ###########################  Poisson Covariance
+    ###########################  Foreground Covariance
     
     ######## Default Power Spec Template (flat Cℓ)
     ℓs = T.(Cℓ.unlensed_scalar.TT.ℓ)
-    if fg_spectrum_shape == nothing
-        fg_spectrum_shape = ones(length(ℓs))
+    if Cℓ_fg == nothing 
+        Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
     end
-
-    ######## Convert to Interpolated Cls for Cℓ_to_Cov
-    Cl_g_interp = InterpolatedCℓs(ℓs,fg_spectrum_shape)
     
-    ####### Make Cg dependent on one parameter or bandpowers
+    Ag₀ = T(Ag) ; αg₀ = T(αg)
+    ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     if ℓedges_g == nothing
-        Cg0 = Cℓ_to_Cov(:I, proj, Cl_g_interp)
+        Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;A3k=A3k₀, _...)->(T(A3k)*Cg0))
+            ParamDependentOp( (;Ag=Ag0, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
         end
     else
-        Cg = Cℓ_to_Cov(:I, proj,( A3k*Cl_g_interp, ℓedges_g, :A3k))
+        Cg = Cℓ_to_Cov(:I, proj,( Ag*Cℓ_fg , ℓedges_g, :Ag))
     end
     ###########################  Bandpower dependent Cϕ and Cf
     ########################### Mixing matrix G, also depends on Aϕ
