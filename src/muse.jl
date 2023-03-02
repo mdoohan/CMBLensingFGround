@@ -5,7 +5,7 @@ using .MuseInference.AbstractDifferentiation
 
 export CMBLensingMuseProblem
 
-@kwdef struct CMBLensingMuseProblem{DS<:DataSet,DS_SIM<:DataSet} <: AbstractMuseProblem
+struct CMBLensingMuseProblem{DS<:DataSet,DS_SIM<:DataSet} <: AbstractMuseProblem
     ds :: DS
     ds_for_sims :: DS_SIM = ds
     parameterization = 0
@@ -13,12 +13,24 @@ export CMBLensingMuseProblem
     θ_fixed = (;)
     x = ds.d
     latent_vars = nothing
-    autodiff = AD.HigherOrderBackend((AD.ForwardDiffBackend(tag=false), AD.ZygoteBackend()))
+    #autodiff = AD.HigherOrderBackend((AD.ForwardDiffBackend(tag=false), AD.ZygoteBackend()))
     transform_θ = identity
     inv_transform_θ = identity
 end
-CMBLensingMuseProblem(ds, ds_for_sims=ds; kwargs...) = CMBLensingMuseProblem(;ds, ds_for_sims, kwargs...)
+#CMBLensingMuseProblem(ds, ds_for_sims=ds; kwargs...) = CMBLensingMuseProblem(;ds, ds_for_sims, kwargs...)
 
+function CMBLensingMuseProblem(
+    ds, 
+    ds_for_sims = ds; 
+    parameterization = 0, 
+    MAP_joint_kwargs = (;), 
+    θ_fixed = (;), 
+    latent_vars = nothing,
+    autodiff = AD.HigherOrderBackend((AD.ForwardDiffBackend(tag=false), AD.ZygoteBackend())),
+)
+    parameterization == 0 || error("only parameterization=0 (unlensed parameterization) currently implemented")
+    CMBLensingMuseProblem(ds, ds_for_sims, parameterization, MAP_joint_kwargs, θ_fixed, ds.d, latent_vars, autodiff)
+end
 
 mergeθ(prob::CMBLensingMuseProblem, θ) = isempty(prob.θ_fixed) ? θ : (;prob.θ_fixed..., θ...)
 
