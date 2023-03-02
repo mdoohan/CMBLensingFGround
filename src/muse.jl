@@ -53,6 +53,11 @@ function MuseInference.sample_x_z(prob::CMBLensingMuseProblem, rng::AbstractRNG,
     (;x, z)
 end
 
+function MuseInference.sample_x_z(prob::CMBLensingMuseProblem{FGroundDataSet}, rng::AbstractRNG, θ) 
+    s = simulate(rng, prob.ds_for_sims, θ = CMBLensing.mergeθ(prob, θ))
+    (;x=s.d, z=(;s.f, s.ϕ, s.g))
+end
+
 function MuseInference.ẑ_at_θ(prob::CMBLensingMuseProblem, d, zguess, θ; ∇z_logLike_atol=nothing)
     @unpack ds = prob
     Ωstart = delete(NamedTuple(zguess), :f)
