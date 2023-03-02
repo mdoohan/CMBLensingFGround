@@ -460,7 +460,7 @@ function load_fground_ds(;
     if ℓedges_g == nothing
         Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;Ag=Ag0, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
+            ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
         end
     else
         Cg = Cℓ_to_Cov(:I, proj,( Ag*Cℓ_fg , ℓedges_g, :Ag))
