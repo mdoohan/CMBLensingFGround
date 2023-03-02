@@ -407,7 +407,7 @@ function load_fground_ds(;
     # Either supply a spectrum, or specify amplitude, power law index and pivot scale
     # if ℓedges_g = nothing, Cg will be a ParamDependentOp, where Cg = Cg(Ag, αg)
     Ag = 1e-5, αg = 0, ℓpivot_fg = 3000,
-    Cℓ_fg = nothing, # Template for foreground spectrum. Cℓ_fg = Ag*fg_spectrum_shape
+    Cℓ_fg = nothing, # Template for foreground spectrum.
 
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
     logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
