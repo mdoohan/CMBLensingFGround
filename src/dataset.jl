@@ -455,7 +455,7 @@ function load_fground_ds(;
         Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
     end
     
-    Ag₀ = T(Ag) ; αg₀ = T(αg)
+    Ag₀ = T(Ag) ;  αg₀ = T(αg)
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     if ℓedges_g == nothing
         Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
