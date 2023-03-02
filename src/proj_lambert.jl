@@ -446,69 +446,6 @@ function cov_to_Cℓ(C::DiagOp{<:LambertS0}; kwargs...)
 end
 
 
-# ParamDependentOp covariances scaled by amplitudes in different ℓ-bins
-# Amplitude parameterized by its exponent log10(A)
-function Cℓ_to_Cov_logA(::Val{:I}, proj::ProjLambert{T}, (Cℓ, ℓedges, θname)::Tuple; kwargs...) where {T}
-    # we need an @eval here since we want to dynamically select a
-    # keyword argument name, θname. the @eval happens into Main rather
-    # than CMBLensing as a workaround for
-    # https://discourse.julialang.org/t/closure-not-shipping-to-remote-workers-except-from-main/38831
-    C₀ = diag(Cℓ_to_Cov(:I, proj, Cℓ; kwargs...))
-    @eval Main let ℓedges=$((T.(ℓedges))...,), C₀=$C₀
-        $ParamDependentOp(function (;$θname=zeros($T,length(ℓedges)-1),_...)
-            As = $preprocess.(Ref((nothing,C₀.metadata)), $T.($ensure1d($θname)))
-            CℓI = $Zygote.ignore() do
-                copy(C₀.Il) .* exp.(zero.(first(As)))# gets batching right
-            end
-            $Diagonal($LambertFourier($bandpower_rescale_logA!(ℓedges, C₀.ℓmag, CℓI, As...), C₀.metadata))
-        end)
-    end
-end
-
-Cℓ_to_Cov_logA(pol::Symbol, args...; kwargs...) = Cℓ_to_Cov_logA(Val(pol), args...; kwargs...)
-
-function bandpower_rescale_logA!(ℓedges, ℓ, Cℓ, A...)
-    length(A)==length(ℓedges)-1 || error("Expected $(length(ℓedges)-1) bandpower parameters, got $(length(A)).")
-    eltype(A[1]) <: Real || error("Bandpower parameters must be real numbers.")
-    if length(A)>30
-        # if more than 30 bandpowers, we need to chunk the rescaling
-        # because of a maximum argument limit of CUDA kernels
-        for p in partition(1:length(A), 30)
-            bandpower_rescale!(ℓedges[p.start:(p.stop+1)], ℓ, Cℓ, A[p]...)
-        end
-    else
-        broadcast!(Cℓ, ℓ, Cℓ, A...) do ℓ, Cℓ, A...
-            for i=1:length(ℓedges)-1
-                (ℓedges[i] < ℓ < ℓedges[i+1]) && return exp.(A[i]) .* Cℓ
-            end
-            return Cℓ
-        end
-    end
-    Cℓ
-end
-
-@adjoint function bandpower_rescale_logA!(ℓedges, ℓ, Cℓ, A...)
-    back = let Cℓ = copy(Cℓ) # need copy bc Cℓ mutated on forward pass
-        function (Δ)
-            Ā = map(1:length(A)) do i
-                sum(
-                    real,
-                    broadcast(Δ, ℓ, Cℓ) do Δ, ℓ, Cℓ
-                        (ℓedges[i] < ℓ < ℓedges[i+1]) ? Δ * Cℓ : zero(Δ)
-                    end,
-                    dims = ndims(Δ)==4 ? (1,2) : (:)
-                )
-            end
-            (nothing, nothing, nothing, Ā...)
-        end
-    end
-    bandpower_rescale_logA!(ℓedges, ℓ, Cℓ, A...), back
-end
-############################################################################################################
-############################################################################################################
-
-
-
 ### spin adjoints
 function *(a::SpinAdjoint{F}, b::F) where {B<:Union{Map,Basis2Prod{<:Any,Map},Basis3Prod{<:Any,<:Any,Map}},F<:LambertField{B}}
     r = sum(a.f.arr .* b.arr, dims=3)

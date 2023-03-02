@@ -409,8 +409,7 @@ function load_fground_ds(;
     Ag = 1e-5, αg = 0, ℓpivot_fg = 3000,
     Cℓ_fg = nothing, # Template for foreground spectrum.
 
-    Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
-    logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
+    Ng = nothing ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
 )
     
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
