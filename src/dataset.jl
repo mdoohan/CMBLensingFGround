@@ -458,6 +458,11 @@ function load_fground_ds(;
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     if ℓedges_g == nothing
         Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
+        # Get Inf values if αg -ve 
+        if αg < 0
+            ind_zero = Cg0 .== 0
+            Cg0[ind_zero] .= 1e-3
+        end
         Cg = let Cg0 = Cg0
             ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
         end
