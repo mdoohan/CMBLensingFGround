@@ -409,7 +409,8 @@ function load_fground_ds(;
     Ag = 1e-5, αg = 0, ℓpivot_fg = 3000,
     Cℓ_fg = nothing, # Template for foreground spectrum.
 
-    Ng = nothing ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
+    Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
+    logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
     
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
@@ -478,12 +479,12 @@ function load_fground_ds(;
         Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) 
         G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
         logAϕ₀= zeros(nbins_ϕ)
-        fg_ds.G = ParamDependentOp((;logAϕ=logAϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(logAϕ=logAϕ)))))
+        G = ParamDependentOp((;logAϕ=logAϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(logAϕ=logAϕ)))))
     else
         Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
         G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
         Aϕ₀= ones(nbins_ϕ)
-        fg_ds.G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+        G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
     end
 
     ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
@@ -497,7 +498,7 @@ function load_fground_ds(;
     Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G=ds.G)
+    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G)
     @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
     fg_ds.d = d;
     
