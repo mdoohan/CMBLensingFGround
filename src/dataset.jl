@@ -474,11 +474,17 @@ function load_fground_ds(;
 
     Nϕ=ds.Nϕ # QE noise est : Nϕ=quadratic_estimate(ds).Nϕ / Nϕ_fac
     nbins_ϕ = length(ℓedges_ϕ)-1
-
-    Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
-    G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
-    Aϕ₀= ones(nbins_ϕ)
-    G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+    if logAphi_option 
+        Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) 
+        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+        logAϕ₀= zeros(nbins_ϕ)
+        fg_ds.G = ParamDependentOp((;logAϕ=logAϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(logAϕ=logAϕ)))))
+    else
+        Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+        Aϕ₀= ones(nbins_ϕ)
+        fg_ds.G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+    end
 
     ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
     ########################## Simulate data
@@ -491,7 +497,7 @@ function load_fground_ds(;
     Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G)
+    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G=ds.G)
     @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
     fg_ds.d = d;
     
