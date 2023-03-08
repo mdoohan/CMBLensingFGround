@@ -7,15 +7,15 @@ export CMBLensingMuseProblem
 
 struct CMBLensingMuseProblem{DS<:DataSet,DS_SIM<:DataSet} <: AbstractMuseProblem
     ds :: DS
-    ds_for_sims :: DS_SIM = ds
-    parameterization = 0
-    MAP_joint_kwargs = (;)
-    θ_fixed = (;)
-    x = ds.d
-    latent_vars = nothing
+    ds_for_sims :: DS_SIM
+    parameterization 
+    MAP_joint_kwargs
+    θ_fixed 
+    x 
+    latent_vars
     #autodiff = AD.HigherOrderBackend((AD.ForwardDiffBackend(tag=false), AD.ZygoteBackend()))
-    transform_θ = identity
-    inv_transform_θ = identity
+    #transform_θ = identity
+    #inv_transform_θ = identity
 end
 #CMBLensingMuseProblem(ds, ds_for_sims=ds; kwargs...) = CMBLensingMuseProblem(;ds, ds_for_sims, kwargs...)
 
