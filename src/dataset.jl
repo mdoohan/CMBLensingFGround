@@ -468,7 +468,7 @@ function load_fground_ds(;
             ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
         end
     else
-        Cg = Cℓ_to_Cov(:I, proj,( Ag*Cℓ_fg , ℓedges_g, :Ag))
+        Cg = Cℓ_to_Cov(:I, proj,(Cℓ_fg , ℓedges_g, :Ag))
     end
     ###########################  Bandpower dependent Cϕ and Cf
     ########################### Mixing matrix G, also depends on Aϕ
