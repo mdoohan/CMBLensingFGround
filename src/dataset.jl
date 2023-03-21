@@ -406,7 +406,7 @@ function load_fground_ds(;
     # Foreground field parameterization
     # Either supply a spectrum, or specify amplitude, power law index and pivot scale
     # if ℓedges_g = nothing, Cg will be a ParamDependentOp, where Cg = Cg(Ag, αg)
-    Ag = 1e-5, αg = 0, ℓpivot_fg = 3000,
+    Ag = 1e-5, αg = 0, ℓpivot_fg = 1500,
     Cℓ_fg = nothing, # Template for foreground spectrum.
 
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
@@ -448,13 +448,6 @@ function load_fground_ds(;
     );
     
     ###########################  Foreground Covariance
-    
-    ######## Default Power Spec Template (flat Cℓ)
-    ℓs = T.(Cℓ.unlensed_scalar.TT.ℓ)
-    if Cℓ_fg == nothing 
-        Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
-    end
-    
     Ag₀ = T(Ag) ;  αg₀ = T(αg)
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     if ℓedges_g == nothing
@@ -468,7 +461,11 @@ function load_fground_ds(;
             ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
         end
     else
-        Cg = Cℓ_to_Cov(:I, proj,(Cℓ_fg , ℓedges_g, :Ag))
+        if Cℓ_fg == nothing 
+            ℓs = ℓedges_g[1]:1:ℓedges_g[end]
+            Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
+        end
+        Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , ℓedges_g, :Ag))
     end
     ###########################  Bandpower dependent Cϕ and Cf
     ########################### Mixing matrix G, also depends on Aϕ
