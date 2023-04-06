@@ -391,7 +391,7 @@ function load_fground_ds(;
     fiducial_θ = (;),
     rfid = nothing,
     
-    seed = nothing,
+    seed = 42,
     rng = nothing,
     D = nothing,
     G = nothing,
@@ -424,7 +424,7 @@ function load_fground_ds(;
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
     ℓend = floor(Int32,ℓedges_ϕ[end])
 
-    rng == nothing ? RNG=MersenneTwister(14) : RNG=MersenneTwister(seed) 
+    RNG = @something(rng, MersenneTwister(seed))
 
     ################### Baseline Sim from CMBLensing
     @unpack ds,proj = load_sim(;
