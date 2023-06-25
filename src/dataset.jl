@@ -6,11 +6,7 @@ abstract type DataSet end
 copy(ds::DS) where {DS<:DataSet} = DS(fields(ds)...)
 hash(ds::DataSet, h::UInt64) = foldr(hash, (typeof(ds), fieldvalues(ds)...), init=h)
 function show(io::IO, ds::DataSet)
-    println(io, typeof(ds), ": ")
-    ds_dict = OrderedDict(k => getproperty(ds,k) for k in propertynames(ds) if k!=Symbol("_super"))
-    for line in split(sprint(show, MIME"text/plain"(), ds_dict, context = (:limit => true)), "\n")[2:end]
-        println(io, line)
-    end
+    print(io, typeof(ds), "(", join(String.(fieldnames(typeof(ds))), ", "), ")")
 end
 
 function (ds::DataSet)(θ) 
@@ -23,7 +19,7 @@ end
 adapt_structure(to, ds::DS) where {DS <: DataSet} = DS(adapt(to, fieldvalues(ds))...)
 
 # called when simulating a DataSet, this gets the batching right
-function simulate(rng::AbstractRNG, ds::DataSet, dist::MvNormal{<:Any,<:PDiagMat{<:Any,<:Field}})
+function simulate(rng::AbstractRNG, ds::DataSet, dist::MvNormal{<:Any,<:PDFieldOpWrapper})
     Nbatch = (isnothing(ds.d) || batch_length(ds.d) == 1) ? () : batch_length(ds.d)
     rand(rng, dist; Nbatch)
 end
@@ -33,18 +29,22 @@ struct Mixed{DS<:DataSet} <: DataSet
     ds :: DS
 end
 
+# prior by default is attached to DataSet object for easy tweaking
+logprior(ds::DataSet; Ω...) = ds.logprior(;Ω...)
 
 ### builtin DataSet objects
 
 @kwdef mutable struct NoLensingDataSet <: DataSet
-    d = nothing      # data
-    Cf               # unlensed field covariance
-    Cn               # noise covariance
-    Cn̂ = Cn          # approximate noise covariance, diagonal in same basis as Cf
-    M  = I           # user mask
-    M̂  = M           # approximate user mask, diagonal in same basis as Cf
-    B  = I           # beam and instrumental transfer functions
-    B̂  = B           # approximate beam and instrumental transfer functions, diagonal in same basis as Cf
+    d = nothing             # data
+    Cf                      # unlensed field covariance
+    Cn                      # noise covariance
+    Cn̂ = Cn                 # approximate noise covariance, diagonal in same basis as Cf
+    M  = I                  # user mask
+    M̂  = M                  # approximate user mask, diagonal in same basis as Cf
+    Mborder = M             # border mask for use with super sample prior
+    B  = I                  # beam and instrumental transfer functions
+    B̂  = B                  # approximate beam and instrumental transfer functions, diagonal in same basis as Cf
+    logprior = (;_...) -> 0 # default no prior
 end
 
 @composite @kwdef mutable struct BaseDataSet <: DataSet
@@ -55,11 +55,12 @@ end
     G  = I           # reparametrization for ϕ
     L  = LenseFlow   # lensing operator, possibly cached for memory reuse
     Nϕ = nothing     # some estimate of the ϕ noise, used in several places for preconditioning
+    σ²κ = nothing    # Width of <κ> logprior
 end
 
 @composite @kwdef mutable struct FGroundDataSet <: DataSet
     BaseDataSet...
-    Cg               #** foreground covariance, just poisson for now **#
+    Cg               # Foreground covariance, just poisson for now 
     Ng               # Initial noise estimate for hessian preconditioner
 end
 
@@ -71,6 +72,7 @@ end
     f̃ ← L(ϕ) * f
     μ = M(θ) * (B(θ) * (f̃ + g))
     d ~ MvNormal(μ, Cn(θ))
+    #@isdefined(_logpdf) && (_logpdf[] += logprior(ds; f, ϕ, g, θ, d))
 end
 
 
@@ -81,6 +83,7 @@ end
     f̃ ← L(ϕ) * f
     μ = M(θ) * (B(θ) * f̃)
     d ~ MvNormal(μ, Cn(θ))
+    #@isdefined(_logpdf) && (_logpdf[] += logprior(ds; f, ϕ, θ, d))
 end
 
 @fwdmodel function (ds::NoLensingDataSet)(; f, θ=(;), d=ds.d)
@@ -88,7 +91,20 @@ end
     f ~ MvNormal(0, Cf(θ))
     μ = M(θ) * (B(θ) * f)
     d ~ MvNormal(μ, Cn(θ))
+    #@isdefined(_logpdf) && (_logpdf[] += logprior(ds; f, θ, d))
 end
+
+######### Super-Sample prior
+function logprior(ds::FGroundDataSet; ϕ, _...)
+    (;Mborder, σ²κ) = ds
+    -(sum(Mborder * (∇² * ϕ)) / sum(diag(Mborder)))^2 / (2*σ²κ)
+end
+
+function logprior(ds::BaseDataSet; ϕ, _...)
+    (;Mborder, σ²κ) = ds
+    -(sum(Mborder * (∇² * ϕ)) / sum(diag(Mborder)))^2 / (2*σ²κ)
+end
+
 
 # performance optimization (shouldn't need this once we have Diffractor)
 function gradientf_logpdf(ds::BaseDataSet; f, ϕ, θ=(;), d=ds.d)
@@ -156,7 +172,6 @@ function Hessian_logpdf_preconditioner(Ω::Val{(:ϕ°,:g)}, ds::FGroundDataSet)
     @unpack Cg, Cϕ, Nϕ = ds
     Diagonal(FieldTuple(ϕ°=diag(pinv(Cϕ)+pinv(Nϕ)), g=diag(pinv(Cg))))
 end
-
 
 @doc doc"""
 
@@ -242,6 +257,8 @@ function load_sim(;
     Nϕ_fac = 2,
     L = LenseFlow,
 
+    σ²κ = nothing
+
 )
     
     # projection
@@ -292,7 +309,7 @@ function load_sim(;
     if (Cn == nothing); Cn = Cn̂; end
     Cf = ParamDependentOp((;r=r₀,   _...)->(Cfs + (T(r)/r₀)*Cft))
     Cϕ = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(T(Aϕ) * Cϕ₀))
-         
+    
     # data mask
     if (M == nothing)
         Mfourier = Cℓ_to_Cov(pol, proj, ((k==:TE ? 0 : 1) * bandpass_mask.diag.Wℓ for k in ks)...; units=1)
@@ -322,11 +339,11 @@ function load_sim(;
         B̂ = B
     end
     
-    # creating lensing operator cache
-    Lϕ = alloc_cache(L(Map(diag(Cϕ))), Map(diag(Cf)))
+    # preallocate lensing operator memory
+    Lϕ = precompute!!(L(zero(diag(Cϕ))), zero(diag(Cf)))
 
     # put everything in DataSet
-    ds = BaseDataSet(;Cn, Cn̂, Cf, Cf̃, Cϕ, M, M̂, B, B̂, D, L=Lϕ)
+    ds = BaseDataSet(;Cn, Cn̂, Cf, Cf̃, Cϕ, M, M̂, B, B̂, D, L=Lϕ, σ²κ)
     
     # simulate data
     @unpack f,f̃,ϕ,d = simulate(rng, ds)
@@ -335,7 +352,7 @@ function load_sim(;
     # with the DataSet created, we now more conveniently create the mixing matrices D and G
     ds.Nϕ = Nϕ = quadratic_estimate(ds).Nϕ / Nϕ_fac
     if (G == nothing)
-        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+        G₀ = sqrt(I + 2 * Nϕ * pinv(Cϕ()))
         ds.G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
     end
     if (D == nothing)
@@ -350,12 +367,13 @@ function load_sim(;
 
     if Nbatch != nothing
         d = ds.d *= batch(ones(Int,Nbatch))
-        ds.L = alloc_cache(L(ϕ*batch(ones(Int,Nbatch))), ds.d)
+        ds.L = precompute!!(L(ϕ*batch(ones(Int,Nbatch))), ds.d)
     end
     
     return (;f, f̃, ϕ, d, ds, ds₀=ds(), Cℓ, proj)
     
 end
+
 
 # make foreground dataset with lensing covariance parameterised with bandpowers
 
@@ -365,7 +383,7 @@ function load_fground_ds(;
     θpix,
     Nside,
     pol,
-    T = Float32,
+    T = Float64,
     storage = Array,
     rotator = (0,90,0),
     Nbatch = nothing,
@@ -396,7 +414,9 @@ function load_fground_ds(;
     D = nothing,
     G = nothing,
     Nϕ_fac = 2,
-    L = LenseFlow{RK4Solver{15}},
+    L = LenseFlow(11),
+
+    σ²κ = nothing,
 
     # Bin edges for fields
     ℓedges_ϕ = nothing,
@@ -406,11 +426,12 @@ function load_fground_ds(;
     # Foreground field parameterization
     # Either supply a spectrum, or specify amplitude, power law index and pivot scale
     # if ℓedges_g = nothing, Cg will be a ParamDependentOp, where Cg = Cg(Ag, αg)
-    Ag = 1e-5, αg = 0, ℓpivot_fg = 1500,
+    Ag = 5e-6,
+    αg = 0,
+    ℓpivot_fg = 1500,
     Cℓ_fg = nothing, # Template for foreground spectrum.
 
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
-    logAphi_option = false ## If true, parameterize Cℓϕϕ as Cℓϕϕ -> (10^θ)*Cℓϕϕ_fiducial
 )
     
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
@@ -419,13 +440,12 @@ function load_fground_ds(;
     ###################### check bin limits against map dimensions
     length(Nside) == 1 ? N=Nside : N = findmax(Nside)[1]
     ℓmin = 2*180/(N*(θpix/60))# Simulated power spectra have lower ℓ = 2ℓmin
-    ℓmin > ℓedges_ϕ[1] ? @warn("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])")  : ()
+    #ℓmin > ℓedges_ϕ[1] ? @warn("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])")  : () <- wrong. 23/03/23
     ℓmax = (√2)*180/(θpix/60)
     #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
     ℓend = floor(Int32,ℓedges_ϕ[end])
-
+ 
     RNG = @something(rng, MersenneTwister(seed))
-
     ################### Baseline Sim from CMBLensing
     @unpack ds,proj = load_sim(;
         # basic configuration
@@ -450,19 +470,23 @@ function load_fground_ds(;
     ###########################  Foreground Covariance
     Ag₀ = T(Ag) ;  αg₀ = T(αg)
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
+    ℓs=Cℓ.unlensed_scalar.TT.ℓ
     if ℓedges_g == nothing
+        # Not neccesarily correct
+        Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
+        #=
         Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
-        # Get Inf values if αg -ve 
+        # Get Inf at ℓ = 0 if αg -ve 
         if αg < 0
             ind_zero = Cg0 .== 0
             Cg0[ind_zero] .= 1e-3
         end
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Ag*Diagonal(Cg0.^αg ./ proj.Ωpix) )
+            ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Diagonal(Ag*Cg0.^αg ./ proj.Ωpix) )
         end
+        =#
     else
         if Cℓ_fg == nothing 
-            ℓs = ℓedges_g[1]:1:ℓedges_g[end]
             Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
         end
         Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , ℓedges_g, :Ag))
@@ -472,17 +496,12 @@ function load_fground_ds(;
 
     Nϕ=ds.Nϕ # QE noise est : Nϕ=quadratic_estimate(ds).Nϕ / Nϕ_fac
     nbins_ϕ = length(ℓedges_ϕ)-1
-    if logAphi_option 
-        Cϕ=Cℓ_to_Cov_logA(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :logAϕ)) 
-        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
-        logAϕ₀= zeros(nbins_ϕ)
-        G = ParamDependentOp((;logAϕ=logAϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(logAϕ=logAϕ)))))
-    else
-        Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
-        G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
-        Aϕ₀= ones(nbins_ϕ)
-        G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
-    end
+    
+    Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+    G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+    Aϕ₀= ones(nbins_ϕ)
+    G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+    
 
     ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
     ########################## Simulate data
@@ -495,15 +514,13 @@ function load_fground_ds(;
     Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
 
     ######
-    fg_ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G)
-    @unpack f,g,ϕ,d = simulate(RNG,fg_ds)
-    fg_ds.d = d;
+    ds = FGroundDataSet(;Cf, Cf̃, Cϕ, Cg, Ng, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G, σ²κ)
+    @unpack f,g,ϕ,d = simulate(RNG,ds)
+    ds.d = d;
     
     
-    return (;fg_ds,f,g,ϕ, proj)
+    return (;ds,f,g,ϕ, proj)
 end
-
-
 
 
 function load_nolensing_sim(; 
@@ -520,45 +537,70 @@ function load_nolensing_sim(;
 end
 
 
-### distributed DataSet
+### distributed DataSets
 
-"""
-    set_distributed_dataset(ds, [storage])
-    get_distributed_dataset()
+# bijection between (name::Symbol) => hash(Main.$name)
+const distributed_datasets = (name_hash=Bijection{Symbol,UInt}(), objid_hash=Bijection{UInt,UInt}())
 
-Sometimes it's more performant to distribute a DataSet object to
-parallel workers just once, and have them refer to it from the global
-state, rather than having it get automatically but repeatedly sent as
-part of closures. This provides that functionality. Use
-`set_distributed_dataset(ds)` from the master process to set the
-global DataSet and `get_distributed_dataset()` from any process to
-retrieve it. Repeated calls will not resend `ds` if it hasn't changed
-(based on `hash(ds)`) and if no new workers have been added since the
-last send. The optional argument `storage` will also adapt the dataset
-to a particular storage on the workers, and can be a symbol, e.g.
-`:CuArray`, in the case that CUDA is not loaded on the master process.
-"""
-function set_distributed_dataset(ds, storage=nothing; distribute=true)
-    h = hash((procs(), ds, storage))
-    if h != _distributed_dataset_hash
-        if distribute
-            @everywhere @eval CMBLensing _distributed_dataset = adapt(eval($storage), $ds)
-        else
-            global _distributed_dataset = adapt(eval(storage), ds)
-        end
-        global _distributed_dataset_hash = h
+@doc doc"""
+    CMBLensing.@distributed ds1 ds2 ...
+
+Assuming `ds1`, `ds2`, etc... are DataSet objects which are defined in
+the Main module on all workers, this makes it so that whenever these
+objects are shipped to a worker as part of a remote call, the data is
+not actually sent, but rather the worker just refers to their existing
+local copy. Typical usage:
+
+    @everywhere ds = load_sim(seed=1, ...)
+    CMBLensing.@distributed ds
+    pmap(1:n) do i
+        # do something with ds
     end
-    nothing
+
+Note that `hash(ds)` must yield the same value on all processors, ie
+the macro checks that it really is the same object on all processors.
+Sometimes setting the same random seed is not enough to ensure this as
+there may be tiny numerical differences in the simulated data. In this
+case you can try:
+
+    @everywhere ds.d = $(ds.d)
+
+after loading the dataset to explicitly set the data based on the
+simulation on the master process.
+
+Additionally, if the dataset object has fields which are custom types,
+these must have an appropriate `Base.hash` defined. 
+"""
+macro distributed(datasets...)
+    distributed1(name, ds) = quote
+        hash_ds = hash($ds::DataSet)
+        for id in workers()
+            if hash_ds != remotecall_fetch(()->hash(Base.eval(Main,$name)), id)
+                error("Main.$($name) on master and worker $(id) do not match.")
+            end
+        end
+        ($name in domain(distributed_datasets.name_hash)) && delete!(distributed_datasets.name_hash, $name)
+        (objectid($ds) in domain(distributed_datasets.objid_hash)) && delete!(distributed_datasets.objid_hash, objectid($ds))
+        distributed_datasets.name_hash[$name] = distributed_datasets.objid_hash[objectid($ds)] = hash_ds
+    end
+    Expr(:block, [distributed1(name, ds) for (name, ds) in zip(QuoteNode.(datasets), esc.(datasets))]..., nothing)
 end
-get_distributed_dataset() = _distributed_dataset
-_distributed_dataset = nothing
-_distributed_dataset_hash = nothing
-
-
-struct DistributedDataSet <: DataSet end
-set_distributed_dataset(ds::DistributedDataSet, storage=nothing; distribute=true) = nothing
-getproperty(::DistributedDataSet, k::Symbol) = getproperty(get_distributed_dataset(), k)
-(::DistributedDataSet)(args...; kwargs...) = get_distributed_dataset()(args...; kwargs...)
-function Setfield.ConstructionBase.setproperties(::DistributedDataSet, patch::NamedTuple)
-    Setfield.ConstructionBase.setproperties(get_distributed_dataset(), patch)
+function Serialization.serialize(s::AbstractSerializer, ds::DataSet)
+    hash_ds = hash(ds)
+    original_hash = get(distributed_datasets.objid_hash, objectid(ds), nothing)
+    name = get(inv(distributed_datasets.name_hash), hash_ds, nothing)
+    if name == original_hash == nothing
+        Base.@invoke(Serialization.serialize(s::AbstractSerializer, ds::Any))
+    elseif original_hash != hash_ds
+        error("DataSet object has been modified since it was marked as distributed.")
+    else
+        hash(Base.eval(Main,name)) == hash_ds || error("Main.$name has been modified since it was marked as distributed.")
+        Serialization.writetag(s.io, Serialization.OBJECT_TAG)
+        Serialization.serialize(s, Val{:DataSet})
+        Serialization.serialize(s, name)
+    end
+end
+function Serialization.deserialize(s::AbstractSerializer, ::Type{Val{:DataSet}})
+    name = Serialization.deserialize(s)
+    Base.eval(Main, name)
 end
