@@ -7,10 +7,13 @@ _mpi_rank() = nothing
 
     """
     init_MPI_workers()
+
     Initialize MPI processes as Julia workers. Should be called from all MPI
     processes, and will only return on the master process. 
+
     `transport` should be `"MPI"` or `"TCP"`, which is by default read from the
     environment variable `JULIA_MPI_TRANSPORT`, and otherwise defaults to `"TCP"`.
+
     If CUDA is loaded and functional in the Main module, additionally calls
     [`assign_GPU_workers()`](@ref)
     """
@@ -55,18 +58,21 @@ end
 
 """
     assign_GPU_workers(;print_info=true, use_master=false, remove_oversubscribed_workers=false)
+
 Assign each Julia worker process a unique GPU using `CUDA.device!`.
 Works with workers which may be distributed across different hosts,
 and each host can have multiple GPUs.
+
 If a unique GPU cannot be assigned, that worker is removed if
 `remove_oversubscribed_workers` is true, otherwise an error is thrown.
+
 `use_master` controls whether the master process counts as having been
 assigned a GPU (if false, one of the workers may be assigned the same
 GPU as the master)
 """
 function assign_GPU_workers(;print_info=true, use_master=false, remove_oversubscribed_workers=false)
     if nworkers() > 1
-        @everywhere @eval Main using Distributed, CUDA, CMBLensing
+        @everywhere @eval Main using Distributed, CMBLensing
         master_uuid = @eval Main CUDA.uuid(device())
         accessible_gpus = Dict(asyncmap(workers()) do id
             @eval Main @fetchfrom $id begin
@@ -98,6 +104,7 @@ end
 
 """
     proc_info()
+
 Returns string showing info about available processes.
 """
 function proc_info()
@@ -111,7 +118,7 @@ function proc_info()
             " ("*join(info, ", ")*")"
         end
     end
-    @info join(["Processes:"; lines], "\n")
+    @info join(["Processes ($(nprocs())):"; lines], "\n")
 end
 
 

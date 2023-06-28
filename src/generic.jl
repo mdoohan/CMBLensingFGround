@@ -108,7 +108,7 @@ HarmonicBasis(::Basis3Prod{𝐈, 𝐄𝐁,      <:S0Basis}) = IEBFourier
 (::Type{B})(f::Field{B}) where {B<:Basis} = f
 # This is the fallback if no conversion is explicilty defined, which
 # tries to first convert the basis, e.g. Map(f::BaseQUFourier) becomes
-# Map(QUFourier())(f) which calls QUMap(f). This is also used for
+# Map(QUFourier())(f) which becomes QUMap(f). This is also used for
 # Basislike objects like LenseBasis(...)
 (::Type{B})(f::Field{B′}) where {B′<:Basis,B<:Basis} = B(B′())(f)
 
@@ -120,12 +120,12 @@ HarmonicBasis(::Basis3Prod{𝐈, 𝐄𝐁,      <:S0Basis}) = IEBFourier
 (::Type{B})(dst::Field{B}, src::Field{B}) where {B<:Basis} = src
 
 
-# Basis conversion automatically maps over arrays
+# Basis conversion automatically maps over arrays of Fields
 (::Type{B})(a::AbstractArray{<:Field}) where {B<:Basis} = B.(a)
 (::Type{B})(dst::AbstractArray{<:Field}, src::AbstractArray{<:Field}) where {B<:Basis} = B.(dst,src)
 
-# The abstract `Basis` type means "any basis", hence this conversion rule:
-Basis(f::Field) = f
+# Fallback if no rule is defined which does nothing
+(::Type{B})(f) where {B<:Basis} = f
 
 
 # used in make_field_aliases below
@@ -226,7 +226,7 @@ unknown_rule_error(::typeof(promote_basis_strict_rule), ::B₁, ::B₂) where {B
 basis(f::F) where {F<:Field} = basis(F)
 basis(::Type{<:Field{B}}) where {B<:Basis} = B
 basis(::Type{<:Field}) = Basis
-basis(::AbstractVector) = Basis
+basis(::Union{Number,AbstractVector}) = Basis # allows them to be in FieldTuple
 
 
 ### printing
@@ -263,7 +263,7 @@ end
 If `L` depends on `θ`, evaluates `logdet(L(θ))` offset by its fiducial value at
 `L()`. Otherwise, returns 0.
 """
-logdet(L::FieldOp, θ) = depends_on(L,θ) ? logdet(L()\L(θ)) : 0
+logdet(L::FieldOp, θ) = depends_on(L,θ) ? logdet(pinv(L()) * L(θ)) : 0
 logdet(L::Union{Int,UniformScaling{Bool}}, θ) = 0 # the default returns Float64 which unwantedly poisons the backprop to Float64
 logdet(L, θ) = logdet(L)
 
@@ -308,14 +308,11 @@ end
 # depend on parameters or a field
 (L::Union{FieldOp,UniformScaling})(::Union{Field,NamedTuple}) = L
 
-# allow using `I` as a lensing operator to represent no lensing
-alloc_cache(x, ::Any) = x
-cache(x, ::Any) = x
-cache!(x, ::Any) = x
+# # allow using `I` as a lensing operator to represent no lensing
+precompute!!(L, ::Any) = L
 
-# caching for adjoints
-cache(L::Adjoint, f) = cache(L',f)'
-cache!(L::Adjoint, f) = cache!(L',f)'
+# # caching for adjoints
+precompute!!(L::Adjoint, f) = precompute!!(parent(L),f)'
 
 # todo: fix this
 *(::UniformScaling{Bool}, L::FieldOp) = L
@@ -324,18 +321,31 @@ cache!(L::Adjoint, f) = cache!(L',f)'
 # matrix of maps. the following definitions make it so that Fields aren't
 # splatted into a giant matrix when doing [f f; f f] (which they would othewise
 # be since they're Arrays)
-hvcat(rows::Tuple{Vararg{Int}}, values::Field...) = hvcat(rows, ([x] for x in values)...)
+hvcat(rows::Tuple{Vararg{Int}}, values::Field...) = hvcat(rows, [[x] for x in values]...)
+hvcat(rows::Tuple{Vararg{Int}}, values::DiagOp...) = hvcat(rows, [[x] for x in values]...)
 hcat(values::Field...) = hcat(([x] for x in values)...)
 
+@opt_out rrule(::typeof(hvcat), rows::Tuple{Vararg{Int}}, values::DiagOp...)
+
+
 ### printing
+print_array(io::IO, D::DiagOp) = !isempty(D) && print_array(io, Diagonal(diag(D)[:]))
 print_array(io::IO, f::Field) = !isempty(f) && print_array(io, f[:])
 show_vector(io::IO, f::Field) = !isempty(f) && show_vector(io, f[:])
+Base._show_nonempty(io::IO, D::DiagOp, prefix::String) = Base._show_nonempty(io, Diagonal(diag(D)[:]), prefix)
 Base.has_offset_axes(::Field) = false # needed for Diagonal(::Field) if the Field is implicitly-sized
 
 
-# addition/subtraction works between any fields and scalars, promotion is done
-# automatically if fields are in different bases
-for op in (:+,:-), (T1,T2,promote) in ((:Field,:Scalar,false),(:Scalar,:Field,false),(:Field,:Field,true))
+# addition/subtraction works between fields, scalars, and
+# abstractarrays. promotion is done automatically for fields in
+# different bases are wrapped assuming they're the same field type
+for op in (:+,:-), (T1,T2,promote) in [
+    (:Field,         :Scalar,        false),
+    (:Scalar,        :Field,         false),
+    (:Field,         :Field,         true),
+    (:Field,         :AbstractArray, true),
+    (:AbstractArray, :Field,         true)
+]
     @eval ($op)(a::$T1, b::$T2) = broadcast($op, ($promote ? promote(a,b) : (a,b))...)
 end
 

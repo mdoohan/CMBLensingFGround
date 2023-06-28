@@ -25,12 +25,13 @@ Zygote.accum(x::FieldOp, y::FieldOp, zs::FieldOp...) = _plus_accum(x, y, zs...)
 # AD for Fourier Fields can be really subtle because such objects are
 # still supposed to represent a pixel-space field, despite that
 # they're stored as the half-plane real FFT coefficients. this leads
-# to needing factors of Npix(=Ny*Nx) and rfft_degeneracy_fac (which
+# to needing factors of Npix(=Ny*Nx) and λ_rfft (which
 # gives weight of 2 to coefficient which would be there twice in the
 # full-plane FFT) in a few cases below to make the logic all work. the
 # Npix factor is handled by the Zfac function.
-Zfac(::SpatialBasis{Map},     proj::FlatProj) = 1
-Zfac(::SpatialBasis{Fourier}, proj::FlatProj) = proj.Ny * proj.Nx
+Zfac(::SpatialBasis{Map},       proj::CartesianProj) = 1
+Zfac(::SpatialBasis{Fourier},   proj::CartesianProj) = proj.Ny * proj.Nx
+Zfac(::SpatialBasis{AzFourier}, proj::CartesianProj) = 1 # no factor needed here bc of √nφ in AzFourier(::Map)
 Zfac(L::DiagOp{<:Field{B}}) where {B} = Zfac(B(), L.diag.metadata)
 
 
@@ -41,36 +42,46 @@ Zfac(L::DiagOp{<:Field{B}}) where {B} = Zfac(B(), L.diag.metadata)
     F(arr, metadata), Δ -> (Δ.arr, nothing)
 end
 @adjoint function (::Type{F})(arr::A, metadata::M) where {B<:SpatialBasis{Fourier},M<:Proj,T,A<:AbstractArray{T},F<:BaseField{B}}
-    F(arr, metadata), Δ -> (Δ.arr .* adapt(Δ.storage, T.(rfft_degeneracy_fac(metadata.Ny) ./ Zfac(B(), metadata))), nothing)
+    F(arr, metadata), Δ -> (Δ.arr .* Δ.λ_rfft ./ Zfac(B(), metadata), nothing)
+end
+@adjoint function (::Type{F})(arr::A, metadata::M) where {B<:SpatialBasis{AzFourier},M<:Proj,T,A<:AbstractArray{T},F<:BaseField{B}}
+    F(arr, metadata), Δ -> (Δ.arr .* Δ.λ_rfft ./ Zfac(B(), metadata), nothing)
 end
 # the factors here need to cancel the ones in the corresponding constructors above
 @adjoint function Zygote.literal_getproperty(f::BaseField{B}, ::Val{:arr}) where {B<:SpatialBasis{Map}}
     getfield(f,:arr), Δ -> (BaseField{B}(Δ, f.metadata),)
 end
 @adjoint function Zygote.literal_getproperty(f::BaseField{B,M,T}, ::Val{:arr}) where {B<:SpatialBasis{Fourier},M,T}
-    getfield(f,:arr), Δ -> (BaseField{B}(Δ ./ adapt(typeof(Δ), T.(rfft_degeneracy_fac(f.Ny) ./ Zfac(B(), f.metadata))), f.metadata),)
+    getfield(f,:arr), Δ -> (BaseField{B}(Δ ./ f.λ_rfft .* Zfac(B(), f.metadata), f.metadata),)
 end
-# preserve field type for sub-component property getters
-function _getproperty_subcomponent_pullback(f, k)
-    g = zero(f)
-    function getproperty_pullback(Δ)
+@adjoint function Zygote.literal_getproperty(f::BaseField{B,M,T}, ::Val{:arr}) where {B<:SpatialBasis{AzFourier},M,T}
+    getfield(f,:arr), Δ -> (BaseField{B}(Δ ./ f.λ_rfft .* Zfac(B(), f.metadata), f.metadata),)
+end
+# needed to preserve field type for sub-component property getters
+@adjoint function Zygote.getproperty(f::BaseField, k::Union{typeof.(Val.((:I,:Q,:U,:E,:B,:P,:IP)))...})
+    function field_getproperty_pullback(Δ)
+        g = (similar(f, promote_type(eltype(f), eltype(Δ))) .= 0)
         getproperty(g, k) .= Δ
         (g, nothing)
     end
-    getproperty(f, k), getproperty_pullback
-end
-@adjoint function Zygote.literal_getproperty(f::BaseField{B}, k::Union{typeof.(Val.((:I,:Q,:U,:E,:B)))...}) where {B₀, B<:SpatialBasis{B₀}}
-    _getproperty_subcomponent_pullback(f, k)
-end
-@adjoint function Zygote.literal_getproperty(f::BaseS02{Basis3Prod{𝐈,B₂,B₀}}, k::Val{:P}) where {B₂,B₀}
-    _getproperty_subcomponent_pullback(f, k)
+    getproperty(f, k), field_getproperty_pullback
 end
 # if accumulting from one branch that was just a f.metadata
 Zygote.accum(f::BaseField, nt::NamedTuple{(:arr,:metadata)}) = (@assert(isnothing(nt.arr)); f)
 
 # FieldTuple
 @adjoint (::Type{FT})(fs) where {FT<:FieldTuple} = FT(fs), Δ -> (Δ.fs,)
-@adjoint Zygote.literal_getproperty(f::FieldTuple, ::Val{:fs}) = getfield(f,:fs), Δ -> (FieldTuple(map((f,f̄) -> isnothing(f̄) ? zero(f) : f̄, getfield(f,:fs), Δ)),)
+@adjoint function Zygote.literal_getproperty(f::FieldTuple, ::Val{:fs})
+    getfield(f,:fs), Δ -> (FieldTuple(map((f,f̄) -> isnothing(f̄) ? zero(f) : f̄, getfield(f,:fs), Δ)),)
+end
+@adjoint function Zygote.getproperty(f::FieldTuple, ::Val{k}) where {k}
+    function fieldtuple_getproperty_pullback(Δ)
+        g = (similar(f, promote_type(eltype(f), eltype(Δ))) .= 0)
+        getproperty(g, k) .= Δ
+        (g, nothing)
+    end
+    getproperty(f,Val(k)), fieldtuple_getproperty_pullback
+end
 
 # BatchedReals
 @adjoint Zygote.literal_getproperty(br::BatchedReal, ::Val{:vals}) = getfield(br,:vals), Δ -> (batch(real.(Δ)),)
@@ -86,14 +97,19 @@ Zygote.accum(f::BaseField, nt::NamedTuple{(:arr,:metadata)}) = (@assert(isnothin
 # than might be ideal, although its not too bad. see also: 
 # https://discourse.julialang.org/t/how-to-deal-with-zygote-sometimes-pirating-its-own-adjoints-with-worse-ones
 
+# have to be careful for reductions to ℝ¹ since if
+# set_sum_accuracy_mode(Float64) the return value might be higher
+# percision than input fields. (also it might be a Dual for
+# higher-order diff)
+
 # ℝᴺ -> ℝ¹ 
-@adjoint sum(f::Field{B}) where {B} = sum(f), Δ -> (Δ*one(f),)
+@adjoint sum(f::Field{B,T}) where {B,T} = sum(f), Δ -> (real(T)(Δ) * one(f),)
 @adjoint norm(f::Field) = Zygote.pullback(f->sqrt(dot(f,f)), f)
-@adjoint dot(f::Field{B1}, g::Field{B2}) where {B1,B2} = dot(f,g), Δ -> (Δ*B1(g), Δ*B2(f))
+@adjoint dot(f::Field{B1,T1}, g::Field{B2,T2}) where {B1,B2,T1,T2} = dot(f,g), Δ -> (real(T1)(Δ)*B1(g), real(T2)(Δ)*B2(f))
 @adjoint (*)(f::Adjoint{<:Any,<:Field}, g::Field) = Zygote.pullback((f,g)->dot(f',g),f,g)
 # ℝᴺˣᴺ -> ℝ¹ 
 @adjoint logdet(L::ParamDependentOp, θ) = Zygote.pullback((L,θ)->logdet(L(θ)), L, θ)
-@adjoint logdet(L::DiagOp) = logdet(L), Δ -> (Δ * Zfac(L) * pinv(L)',)
+@adjoint logdet(L::DiagOp{F,T}) where {F<:Field, T} = logdet(L), Δ -> (real(T)(Δ) * Zfac(L) * pinv(L)',)
 
 # basis conversion
 @adjoint (::Type{B})(f::Field{B′}) where {B<:Basis, B′} = B(f), Δ -> (B′(Δ),)
@@ -124,10 +140,6 @@ end
 @adjoint /(f::Adjoint{<:Any,<:Field}, L::Union{DiagOp,ImplicitOp}) = Zygote.pullback((f,L)->(L'\f')', f, L)
 # special case for some ops which are constant by definition
 @adjoint *(L::Union{FuncOp,DiagOp{<:∇diag}}, f::Field{B}) where {B} = L*f, Δ->(nothing, B(L'*Δ))
-# todo: need to fix this to allow gradient w.r.t. entries of a BlockDiagIEB
-@adjoint *(L::BlockDiagIEB, f::Field{B}) where {B} = L*f, Δ->(nothing, B(L'*Δ))
-@adjoint \(L::BlockDiagIEB, f::Field{B}) where {B} = L\f, Δ->(nothing, B(L'\Δ))
-
 
 ## FieldVectors
 
@@ -181,10 +193,6 @@ end
 
 @adjoint (::Type{SA})(tup) where {SA<:SArray} = SA(tup), Δ->(tuple(Δ...),)
 
-# workaround for https://github.com/FluxML/Zygote.jl/issues/686
-@static if versionof(Zygote) > v"0.4.15"
-    Zygote._zero(xs::StaticArray, T) = SizedArray{Tuple{size(xs)...},Union{T,Nothing}}(map(_->nothing, xs))
-end
 
 # workaround for Zygote not working through cat when dims is a Val
 # adapted from solution by Seth Axen 
@@ -236,3 +244,70 @@ Zygote.wrap_chainrules_output(dxs::LazyBinaryOp) = dxs
 # needed to allow AD through field broadcasts
 Zygote.unbroadcast(x::BaseField{B}, x̄::BaseField) where {B} = 
     BaseField{B}(Zygote.unbroadcast(x.arr, x̄.arr), x.metadata)
+
+
+
+## ForwardDiff rules 
+# mainly FFTs which don't work, some work upstream here
+# https://github.com/JuliaDiff/ForwardDiff.jl/pull/541 but its not
+# incorporated merged
+
+using ForwardDiff: Dual, Partials, value, partials
+
+
+# FFT is a linear operator so FFT of a vector of duals is just an FFT
+# of the values and partials separately
+
+function apply_plan(op, plan, arr::AbstractArray{Dual{T,V,N}}) where {T,V,N}
+    value_arr = op(plan, value.(arr))
+    partials_arrs = ntuple(i -> op(plan, partials.(arr, i)), Val(N))
+    return (value_arr, partials_arrs)
+end
+
+function apply_plan(op, plan, arr::AbstractArray{<:Complex{Dual{T,V,N}}}) where {T,V,N}
+    value_arr = op(plan, complex.(value.(real.(arr)), value.(imag.(arr))))
+    partials_arrs = ntuple(i -> op(plan, complex.(partials.(real.(arr), i), partials.(imag.(arr), i))), Val(N))
+    return (value_arr, partials_arrs)
+end
+
+function arr_of_duals(::Type{T}, value_arr::AbstractArray{<:Real}, partials_arrs) where {T}
+    return broadcast(value_arr, partials_arrs...) do value, partials...
+        Dual{T}(real(value), Partials(map(real, partials)))
+    end
+end
+
+function arr_of_duals(::Type{T}, value_arr::AbstractArray{<:Complex}, partials_arrs) where {T}
+    return broadcast(value_arr, partials_arrs...) do value, partials...
+        complex(
+            Dual{T}(real(value), Partials(map(real, partials))),
+            Dual{T}(imag(value), Partials(map(imag, partials)))
+        )
+    end
+end
+
+for P in [AbstractFFTs.Plan, AbstractFFTs.ScaledPlan]
+    for op in [:(Base.:*), :(Base.:\)]
+        @eval function ($op)(plan::$P, arr::AbstractArray{<:Union{Dual{T},Complex{<:Dual{T}}}}) where {T}
+            arr_of_duals(T, apply_plan($op, plan, arr)...)
+        end
+    end
+end
+
+LinearAlgebra.mul!(dst::AbstractArray{<:Complex{<:Dual}}, plan::AbstractFFTs.Plan, src::AbstractArray{<:Dual}) = (dst .= plan * src)
+LinearAlgebra.mul!(dst::AbstractArray{<:Dual}, plan::AbstractFFTs.ScaledPlan, src::AbstractArray{<:Complex{<:Dual}}) = (dst .= plan * src)
+
+
+# to allow creating a plan within ForwardDiff'ed code. even for
+# arrays of Duals, the plan is still a plan for Float32/64 since we
+# apply it to values/partials separtarely above
+AbstractFFTs.complexfloat(arr::AbstractArray{<:Dual}) = complex.(arr)
+AbstractFFTs.realfloat(arr::AbstractArray{<:Dual}) = arr
+AbstractFFTs.plan_fft(arr::AbstractArray{<:Complex{<:Dual}}, region) = plan_fft(complex.(value.(real.(arr)), value.(imag.(arr))), region)
+AbstractFFTs.plan_rfft(arr::AbstractArray{<:Dual}, region; kws...) = plan_rfft(value.(arr), region; kws...)
+
+# super edge-case ambiguity in Zygote when first arg is a LazyBinaryOp...
+Zygote.z2d(dx::AbstractArray{Union{}}, ::AbstractArray) = dx
+
+# to allow stuff like Float32(::Dual) to work
+# might be coming upstream https://github.com/JuliaDiff/ForwardDiff.jl/pull/538
+(::Type{S})(x::Dual{T,V,N}) where {T,V,N,S<:Union{Float32,Float64}} = Dual{T,S,N}(x)

@@ -15,15 +15,15 @@ typealias_def(::Type{<:ProjHealpix}) = "ProjHealpix"
 ## constructing from arrays
 # spin-0
 function HealpixMap(I::A) where {T, A<:AbstractArray{T}}
-    HealpixMap(I, ProjHealpix(hp.npix2nside(length(I))))
+    HealpixMap(I, ProjHealpix(npix2nside(length(I))))
 end
 # spin-2
 function HealpixField{B}(X::A, Y::A) where {T, A<:AbstractArray{T}, B<:Basis2Prod{<:Union{𝐐𝐔,𝐄𝐁},Map}}
-    HealpixField{B}(cat(X, Y, dims=Val(2)), ProjHealpix(hp.npix2nside(length(X))))
+    HealpixField{B}(cat(X, Y, dims=Val(2)), ProjHealpix(npix2nside(length(X))))
 end
 # spin-(0,2)
 function HealpixField{B}(I::A, X::A, Y::A) where {T, A<:AbstractArray{T}, B<:Basis3Prod{𝐈,<:Union{𝐐𝐔,𝐄𝐁},Map}}
-    HealpixField{B}(cat(I, X, Y, dims=Val(2)), ProjHealpix(hp.npix2nside(length(I))))
+    HealpixField{B}(cat(I, X, Y, dims=Val(2)), ProjHealpix(npix2nside(length(I))))
 end
 
 ### pretty printing
@@ -88,40 +88,36 @@ end
 # * we have to define these at the "broadcasted" level so we can do
 #   just a single call to Rotator(), otherwise it'd be really slow
 
-function broadcasted(::typeof(ij_to_θϕ), proj::ProjLambert, is, js)
-    @unpack Δx, Ny, Nx, rotator = proj
-    R = hp.Rotator(rotator)
-    θϕs = broadcast(is, js) do i, j
-        x = Δx * (j - Nx÷2 - 0.5)
-        y = Δx * (i - Ny÷2 - 0.5)
-        r = sqrt(x^2 + y^2)
-        θ = 2*acos(r/2)
-        ϕ = atan(-x, -y)
-        θ, ϕ
-    end
-    θϕs = reshape(R.get_inverse()(first.(θϕs)[:], last.(θϕs)[:]), 2, size(θϕs)...)
-    tuple.(θϕs[1,:,:], θϕs[2,:,:])
+function ij_to_θϕ(proj::ProjLambert, i, j)
+    @unpack Δx, Ny, Nx, rotator, T = proj
+    x = Δx * (j - Nx÷2 - T(0.5))
+    y = Δx * (i - Ny÷2 - T(0.5))
+    r = sqrt(x^2 + y^2)
+    θ = 2*acos(r/2)
+    ϕ = atan(-x, -y)
+    # note transform to CoordinateTransformations' (θ,ϕ) convention
+    z = SphericalFromCartesian()(RotZYX(T.(deg2rad.(rotator))...) \ CartesianFromSpherical()(Spherical(1, ϕ, T(π/2)-θ)))
+    T(π/2)-z.ϕ, z.θ
 end
 
-function broadcasted(::typeof(θϕ_to_ij), proj::ProjLambert, θs, ϕs)
-    @unpack Δx, Ny, Nx, rotator = proj
-    R = hp.Rotator(rotator)
-    (θs, ϕs) = eachrow(R(θs, ϕs))
-    broadcast(θs, ϕs) do θ, ϕ
-        r = 2cos(θ/2)
-        x = -r*sin(ϕ)
-        y = -r*cos(ϕ)
-        i = y / Δx + Ny÷2 + 0.5
-        j = x / Δx + Nx÷2 + 0.5
-        (i, j)
-    end
+function θϕ_to_ij(proj::ProjLambert, θ, ϕ)
+    @unpack Δx, Ny, Nx, rotator, T = proj
+    # note transform to CoordinateTransformations' (θ,ϕ) convention
+    z = SphericalFromCartesian()(RotZYX(T.(deg2rad.(rotator))...) * CartesianFromSpherical()(Spherical(1, ϕ, T(π/2)-θ)))
+    θ, ϕ = T(π/2)-z.ϕ, z.θ
+    r = 2cos(θ/2)
+    x = -r*sin(ϕ)
+    y = -r*cos(ϕ)
+    i = y / Δx + Ny÷2 + T(0.5)
+    j = x / Δx + Nx÷2 + T(0.5)
+    (i, j)
 end
 
-function broadcasted(::typeof(get_ψpol), proj::ProjLambert, θs, ϕs)
-    @unpack rotator, T = proj
-    R = hp.Rotator((0,-90,0)) * hp.Rotator(rotator)
-    @assert size(θs) == size(ϕs)
-    T.(reshape(R.angle_ref(materialize(θs)[:], materialize(ϕs)[:]), size(θs)...))
+function get_ψpol(proj::ProjLambert, θ, ϕ)
+    J = ForwardDiff.jacobian(@SVector[θ, ϕ]) do (θ, ϕ)
+        SVector{2}(θϕ_to_ij(proj, θ, ϕ))
+    end
+    (atan(J[1,1], J[2,1]) + atan(-J[2,2],J[1,2]) - π)/2
 end
 
 
@@ -146,18 +142,25 @@ end
 
 # some NFFT stuff needed for method=:fft projections
 cu_nfft_loaded = false
-@init begin
-    @require NFFT="efe261a4-0d2b-5849-be55-fc731d526b0d" begin
-        using .NFFT: plan_nfft, AbstractNFFTPlan
-        Zygote.@adjoint function *(plan::Union{Adjoint{<:Any,<:AbstractNFFTPlan}, AbstractNFFTPlan}, x::AbstractArray{T}) where {T}
-            function mul_nfft_plan_pullback(Δ)
-                (nothing, T.(adjoint(plan) * complex(Δ)))
-            end
-            plan * x, mul_nfft_plan_pullback
+@init @require NFFT="efe261a4-0d2b-5849-be55-fc731d526b0d" begin
+    using .NFFT: plan_nfft, AbstractNFFTPlan
+    Zygote.@adjoint function *(plan::Union{Adjoint{<:Any,<:AbstractNFFTPlan}, AbstractNFFTPlan}, x::AbstractArray{T}) where {T}
+        function mul_nfft_plan_pullback(Δ)
+            (nothing, adjoint(plan) * complex(Δ))
         end
-    end        
-    @require CuNFFT="a9291f20-7f4c-4d50-b30d-4e07b13252e1" global cu_nfft_loaded = true
+        plan * x, mul_nfft_plan_pullback
+    end
+    for P in [:(AbstractNFFTPlan{S}), :(Adjoint{Complex{S},<:AbstractNFFTPlan{S}})]
+        for op in [:(Base.:*), :(Base.:\)]
+            for D in [1, 2] # need explicit dimension to resolve method ambiguity
+                @eval function ($op)(plan::$P, arr::AbstractArray{<:Complex{<:Dual{T}}, $D}) where {T, S}
+                    arr_of_duals(T, apply_plan($op, plan, arr)...)
+                end
+            end
+        end
+    end
 end
+@init @require CuNFFT="a9291f20-7f4c-4d50-b30d-4e07b13252e1" global cu_nfft_loaded = true
 
 
 @doc doc"""
@@ -229,7 +232,7 @@ function project(projector::Projector{:fft}, (hpx_map, cart_proj)::Pair{<:Healpi
     @unpack (Ny, Nx, T) = cart_proj
     @unpack (Nside) = hpx_map
     @unpack (nfft_plan, nfft_plan_grid, hpx_idxs_in_patch) = projector
-    splayed_pixels = real.(nfft_plan_grid * (adjoint(nfft_plan) * complex(hpx_map[hpx_idxs_in_patch]))) ./ (length(hpx_idxs_in_patch))
+    splayed_pixels = real.(nfft_plan_grid * (adjoint(nfft_plan) * complex(ensure_dense(hpx_map[hpx_idxs_in_patch])))) ./ (length(hpx_idxs_in_patch))
     FlatMap(reshape(splayed_pixels, Ny, Nx), cart_proj)
 end
 
@@ -259,7 +262,8 @@ function Projector((hpx_proj,cart_proj)::Pair{<:ProjHealpix,<:CartesianProj}; me
     ψpol_θϕs = adapt(storage, get_ψpol.(cart_proj, first.(θϕs), last.(θϕs)))
     
     # i,j (fractional) indices of healpix pixel centers and ψpol at those positions
-    (θs′, ϕs′) = hp.pix2ang(Nside, 0:(12*Nside^2-1))
+    θϕs′ = pix2angRing.(Ref(Resolution(Nside)), 1:(12*Nside^2))
+    (θs′, ϕs′) = first.(θϕs′), last.(θϕs′)
     ijs = θϕ_to_ij.(cart_proj, θs′, ϕs′)
     is, js = first.(ijs), last.(ijs)
     ψpol_ijs = adapt(storage, get_ψpol.(cart_proj, θs′, ϕs′))

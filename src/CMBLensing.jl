@@ -6,19 +6,25 @@ using Base.Broadcast: AbstractArrayStyle, ArrayStyle, Broadcasted,
     DefaultArrayStyle, preprocess_args, Style, result_style, Unknown
 using Base.Iterators: flatten, product, repeated, cycle, countfrom, peel, partition
 using Base: @kwdef, @propagate_inbounds, Bottom, OneTo, showarg, show_datatype,
-    show_default, show_vector, typed_vcat, typename
+    show_default, show_vector, typed_vcat, typename, Callable
+using Bijections
 using ChainRules
+using ChainRules: @opt_out, rrule, unthunk
+using CodecZlib
 using Combinatorics
 using CompositeStructs
+using CoordinateTransformations
 using DataStructures
 using DelimitedFiles
 using Distributed: pmap, nworkers, myid, workers, addprocs, @everywhere, remotecall_wait, 
-    @spawnat, pgenerate, procs, @fetchfrom, default_worker_pool, RemoteChannel
+    @spawnat, pgenerate, procs, @fetchfrom, default_worker_pool, RemoteChannel, rmprocs, nprocs, remotecall_fetch
 using Distributions
 using Distributions: PDiagMat
 using EllipsisNotation
 using FileIO
 using FFTW
+using ForwardDiff
+using Healpix
 using InteractiveUtils
 using IterTools: flagfirst
 using JLD2
@@ -41,13 +47,16 @@ using ProgressMeter
 using QuadGK
 using Random
 using Random: seed!, AbstractRNG
+using Rotations
 using Roots
 using Requires
 using Serialization
 using Setfield
+using SnoopPrecompile
 using SparseArrays
-using StaticArrays: @SMatrix, @SVector, SMatrix, StaticArray, StaticArrayStyle,
-    StaticMatrix, StaticVector, SVector, SArray, SizedArray
+import StaticArrays
+using StaticArrays: @SMatrix, @SVector, SMatrix, StaticMatrix, StaticVector, StaticArray,
+    SVector, SArray, SizedArray, SizedMatrix, SizedVector
 using Statistics
 using StatsBase
 using TimerOutputs: @timeit, get_defaulttimer, reset_timer!
@@ -70,7 +79,7 @@ import Base: +, -, *, \, /, ^, ~, ≈, <, <=, |, &, ==, !,
 import Base.Broadcast: materialize, preprocess, broadcasted
 import Zygote.ChainRules: rrule
 import LinearAlgebra: checksquare, diag, dot, isnan, ldiv!, logdet, mul!, norm,
-    pinv, StructuredMatrixStyle, structured_broadcast_alloc, tr
+    pinv, StructuredMatrixStyle, structured_broadcast_alloc, tr, det
 import Measurements: ±
 import Statistics: std
 import ChainRules: ProjectTo
@@ -88,13 +97,14 @@ export
     get_Cℓ, get_Cℓ, get_Dℓ, get_αℓⁿCℓ, get_ρℓ, get_ℓ⁴Cℓ, gradhess, gradient, HighPass,
     IEBFourier, IEBMap, Cℓs, IQUAzFourier, IQUFourier, IQUMap, kde,
     lasthalf, LazyBinaryOp, LenseBasis, LenseFlow, FieldOp, lnP, logpdf, load_camb_Cℓs,
-    load_chains,load_fground_ds, load_nolensing_sim, load_sim, LowPass, make_mask, Map, MAP_joint, MAP_marg,
+    load_chains, load_fground_ds, load_nolensing_sim, load_sim, LowPass, make_mask, Map, MAP_joint, MAP_marg,
     mean_std_and_errors, MidPass, mix, Mixed, nan2zero, noiseCℓs,
-    ParamDependentOp, pixwin, PowerLens, ProjLambert, ProjEquiRect, ProjHealpix, project,
+    ParamDependentOp, pixwin, PowerLens, precompute!!, ProjLambert, ProjEquiRect, ProjHealpix, project,
     QUAzFourier, QUFourier, QUMap, resimulate!, resimulate, RK4Solver, sample_f, sample_joint, shiftℓ, 
     simulate, SymmetricFuncOp, symplectic_integrate, Taylens, toCℓ, toDℓ,
     ud_grade, unbatch, unmix, Ð, Ł,  
     ℓ², ℓ⁴, ∇, ∇², ∇ᵢ, ∇ⁱ
+
 
 # bunch of sampling-related exports
 export gibbs_initialize_f!, gibbs_initialize_ϕ!, gibbs_initialize_θ!, 
@@ -136,7 +146,8 @@ include("bilinearlens.jl")
 
 # plotting
 function animate end
-@init @require PyPlot="d330b81b-6aea-500a-939a-2ce795aea3ee" include("plotting.jl")
+@init @require PyPlot="d330b81b-6aea-500a-939a-2ce795aea3ee" include("pyplot.jl")
+include("plots.jl")
 
 # PPL
 include("distributions.jl")
@@ -169,6 +180,8 @@ is_gpu_backed(x) = false
 @init if ProgressMeter.@isdefined ijulia_behavior
     ProgressMeter.ijulia_behavior(:clear)
 end
+
+@precompile_all_calls include("precompile.jl")
 
 end
 
