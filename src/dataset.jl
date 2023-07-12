@@ -503,7 +503,7 @@ function load_fground_ds(;
     G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
     
 
-    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.TT, ℓedges_T, :AT))
+    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_scalar.TT, ℓedges_T, :AT))
     ########################## Simulate data
     
     ######## Initial noise est
