@@ -436,17 +436,9 @@ function load_fground_ds(;
     
     ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
     ℓedges_ϕ = T.(ℓedges_ϕ) 
-
-    ###################### check bin limits against map dimensions
-    length(Nside) == 1 ? N=Nside : N = findmax(Nside)[1]
-    ℓmin = 2*180/(N*(θpix/60))# Simulated power spectra have lower ℓ = 2ℓmin
-    #ℓmin > ℓedges_ϕ[1] ? @warn("WARNING : ℓedges_ϕ[1] too small for map dimensions. ℓmin = $ℓmin ℓedges_ϕ[1] = $(ℓedges_ϕ[1])")  : () <- wrong. 23/03/23
-    ℓmax = (√2)*180/(θpix/60)
-    #println("ℓmin = $ℓmin : ℓedges_ϕ[1] = $(ℓedges_ϕ[1]) \n ℓmax = $ℓmax : ℓedges_ϕ[end] = $(ℓedges_ϕ[end])")
-    ℓend = floor(Int32,ℓedges_ϕ[end])
  
     RNG = @something(rng, MersenneTwister(seed))
-    ################### Baseline Sim from CMBLensing
+    ################### Baseline Sim from CMBLensing #####################
     @unpack ds,proj = load_sim(;
         # basic configuration
     θpix, Nside, pol, T, storage, rotator, Nbatch,
@@ -497,7 +489,7 @@ function load_fground_ds(;
     Nϕ=ds.Nϕ # QE noise est : Nϕ=quadratic_estimate(ds).Nϕ / Nϕ_fac
     nbins_ϕ = length(ℓedges_ϕ)-1
     
-    Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_total.ϕϕ, ℓedges_ϕ, :Aϕ))
+    Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.total.ϕϕ, ℓedges_ϕ, :Aϕ))
     G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
     Aϕ₀= ones(nbins_ϕ)
     G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
