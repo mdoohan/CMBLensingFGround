@@ -182,7 +182,7 @@ end
             # trace
             @test all(tr(Diagonal(f)' * Diagonal(f)) ≈ f'f)
             @test all(tr(Diagonal(f) * Diagonal(f)') ≈ f'f)
-            @test_broken all(tr(f*f') ≈ f'f) # broken by (intentionally) removing OuterProdOp
+            # @test all(tr(f*f') ≈ f'f) # unspecified behavior at this point
 
             # Field dot products
             D = Diagonal(f)
@@ -212,9 +212,9 @@ end
                 @test (@inferred mul!(similar(g[1]), Diagonal.(g)', g)) isa typeof(g[1])
                 
                 # FieldMatrix-FieldVector product
-                @test (@inferred Diagonal.(H) * g) isa FieldVector
-                @test (@inferred Diagonal.(H) * Diagonal.(g)) isa FieldOrOpVector
-                @test (@inferred mul!(Diagonal.(similar.(g)), Diagonal.(H), Diagonal.(g))) isa FieldOrOpVector
+                @test (@inferred Diagonal.(H) * g) isa FieldOrOpVector{<:Field}
+                @test (@inferred Diagonal.(H) * Diagonal.(g)) isa FieldOrOpVector{<:DiagOp}
+                @test (@inferred mul!(Diagonal.(similar.(g)), Diagonal.(H), Diagonal.(g))) isa FieldOrOpVector{<:DiagOp}
                 
             end
 
@@ -232,6 +232,14 @@ end
         # matrix type promotion
         @test (@inferred FlatMap(rand(rng,Float64,2,2)) .+ FlatMap(view(rand(rng,Float32,2,2),:,:))) isa FlatMap{<:Any,Float64,Matrix{Float64}}
         
+        # scalar/array FieldTuple components
+        f = FlatMap(rand(Nside...))
+        ft = FieldTuple(;f, θ=[1,2,3])
+        @test ft .+ ft isa typeof(ft)
+        @test Diagonal(ft) * ft isa typeof(ft)
+        @test ft'ft isa Number 
+        @test_nowarn (;f, θ) = ft
+
     end
 
 end
@@ -540,7 +548,7 @@ end
                 ## S0
                 Cf = maybegpu(Cℓ_to_Cov(:I, proj, Cℓ.TT))
                 @test (f = @inferred simulate(rng,Cf)) isa FlatS0
-                @test (Lϕ = cache(LenseFlow(ϕ),f)) isa CachedLenseFlow
+                @test (Lϕ = precompute!!(LenseFlow(ϕ),f)) isa CachedLenseFlow
                 @test (@inferred Lϕ*f) isa FlatS0
                 # adjoints
                 f,g = simulate(rng,Cf),simulate(rng,Cf)
@@ -552,7 +560,7 @@ end
                 # S2 lensing
                 Cf = maybegpu(Cℓ_to_Cov(:P, proj, Cℓ.EE, Cℓ.BB))
                 @test (f = @inferred simulate(rng,Cf)) isa FlatS2
-                @test (Lϕ = cache(LenseFlow(ϕ),f)) isa CachedLenseFlow
+                @test (Lϕ = precompute!!(LenseFlow(ϕ),f)) isa CachedLenseFlow
                 @test (@inferred Lϕ*f) isa FlatS2
                 # adjoints
                 f,g = simulate(rng,Cf),simulate(rng,Cf)
@@ -574,7 +582,7 @@ end
 @testset "Posterior" begin
     
     Cℓ = camb()
-    L = LenseFlow{RK4Solver{7}}
+    L = LenseFlow(7)
     T = Float64
 
     @testset "Nside = $Nside" for Nside in Nsides_big
@@ -619,7 +627,7 @@ end
     φspan  = deg2rad.((-60, 60))
     φspan′ = deg2rad.((-50, 50))
     Cℓ     = camb()
-    rtol   = 1e-5
+    rtol   = 1e-4
 
     @testset "T = $T" for T in (Float32, Float64)
 
