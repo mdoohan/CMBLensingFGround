@@ -99,6 +99,7 @@ function assign_GPU_workers(;print_info=true, use_master=false, remove_oversubsc
         @everywhere workers() device!($assignments[myid()])
     end
     print_info && proc_info()
+    @isdefined(claimed) ? (return claimed) : ()
 end
 
 

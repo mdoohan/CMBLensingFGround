@@ -464,9 +464,16 @@ function load_fground_ds(;
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     ℓs=Cℓ.unlensed_scalar.TT.ℓ
     if ℓedges_g == nothing
-        # Not neccesarily correct
         Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
+        #=if Cℓ_fg == nothing 
+            Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
+            Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
+        else
+            Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , :Ag))
+        end
+        =#
         #=
+        # Not neccesarily correct
         Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
         # Get Inf at ℓ = 0 if αg -ve 
         if αg < 0

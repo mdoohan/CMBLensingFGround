@@ -55,7 +55,7 @@ function MuseInference.sample_x_z(prob::CMBLensingMuseProblem, rng::AbstractRNG,
 end
 
 
-function MuseInference.sample_x_z(prob::CMBLensingMuseProblem{FGroundDataSet}, rng::AbstractRNG, θ) 
+function MuseInference.sample_x_z(prob::CMBLensingMuseProblem{<:FGroundDataSet}, rng::AbstractRNG, θ) 
     s = simulate(rng, prob.ds_for_sims, θ = CMBLensing.mergeθ(prob, θ))
     (;x=s.d, z=LenseBasis(FieldTuple(;f=s.f, ϕ=s.ϕ, g=s.g)))
 end
