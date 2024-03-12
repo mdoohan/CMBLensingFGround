@@ -62,7 +62,7 @@ end
     BaseDataSet...
     Cg               # Foreground covariance, just poisson for now 
     Ng               # Initial noise estimate for hessian preconditioner
-    apod_mask        # store apodization mask. Useful when simulating from 2Nx2N maps
+    apod_mask=nothing        # store apodization mask. Useful when simulating from 2Nx2N maps
 end
 
 @fwdmodel function (ds::FGroundDataSet)(; f, ϕ, g, θ=(;), d=ds.d)
