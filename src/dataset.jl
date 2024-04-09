@@ -62,7 +62,7 @@ end
     BaseDataSet...
     Cg               # Foreground covariance, just poisson for now 
     Ng               # Initial noise estimate for hessian preconditioner
-    apod_mask=nothing        # store apodization mask. Useful when simulating from 2Nx2N maps
+    M_NxN=nothing    # Masking which is done after cutting from 2Nx2N maps. Needed for MuseInference.sample_x_z
 end
 
 @fwdmodel function (ds::FGroundDataSet)(; f, ϕ, g, θ=(;), d=ds.d)
