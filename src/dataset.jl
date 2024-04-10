@@ -425,12 +425,13 @@ function load_fground_ds(;
     ℓedges_g = nothing,
 
     # Foreground field parameterization
-    # Either supply a spectrum, or specify amplitude, power law index and pivot scale
-    # if ℓedges_g = nothing, Cg will be a ParamDependentOp, where Cg = Cg(Ag, αg)
-    Ag = 5e-6,
+    # If spectrum template 'Cℓ_fg' and bin edges 'ℓedges_g' are supplied, Cg will be a bandpower dependent operator
+    # If 'ℓedges_g==nothing', and 'Cℓ_fg' is supplied, Cg = Ag*Cℓ_fg
+    # if both 'Cℓ_fg' and 'ℓedges_g' are nothing, power law foreground Cℓs are made with amplitude 'Ag', and spectral index 'αg' around pivot 'ℓpivot_fg'
+    Ag = 1,
     αg = 0,
     ℓpivot_fg = 1500,
-    Cℓ_fg = nothing, # Template for foreground spectrum.
+    Cℓ_fg = nothing, # Template for foreground spectrum. Should be of type Cℓs
 
     Ng = nothing, ######## Initial noise est for hessian pre-conditioner on g. Not implemented for now
 )
@@ -464,31 +465,11 @@ function load_fground_ds(;
     Ag₀ = T(Ag) ;  αg₀ = T(αg)
     ####### Make Cg dependent on one Amplitude/tilt or bandpowers
     ℓs=Cℓ.unlensed_scalar.TT.ℓ
-    if ℓedges_g == nothing
+    if ℓedges_g == nothing && Cℓ_fg == nothing
         Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
-        #=if Cℓ_fg == nothing 
-            Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
-            Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
-        else
-            Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , :Ag))
-        end
-        =#
-        #=
-        # Not neccesarily correct
-        Cg0 = LambertFourier( ( (1/ℓpivot_fg)*proj.ℓmag) ,proj )
-        # Get Inf at ℓ = 0 if αg -ve 
-        if αg < 0
-            ind_zero = Cg0 .== 0
-            Cg0[ind_zero] .= 1e-3
-        end
-        Cg = let Cg0 = Cg0
-            ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)->Diagonal(Ag*Cg0.^αg ./ proj.Ωpix) )
-        end
-        =#
+    elseif ℓedges_g == nothing && Cℓ_fg != nothing
+        Cg = ParamDependentOp( (;Ag=Ag₀,_...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(Cℓ_fg.ℓ , Ag*(Cℓ_fg.Cℓ)) ) ) )
     else
-        if Cℓ_fg == nothing 
-            Cℓ_fg = Cℓs(ℓs, Ag*(ℓs./ℓpivot_fg).^αg)
-        end
         Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , ℓedges_g, :Ag))
     end
     ###########################  Bandpower dependent Cϕ and Cf
