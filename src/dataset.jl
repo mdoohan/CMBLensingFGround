@@ -468,7 +468,11 @@ function load_fground_ds(;
     if ℓedges_g == nothing && Cℓ_fg == nothing
         Cg = ParamDependentOp( (;Ag=Ag₀, αg=αg₀, _...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(ℓs , Ag*(ℓs./ℓpivot_fg).^αg)) ) )
     elseif ℓedges_g == nothing && Cℓ_fg != nothing
-        Cg = ParamDependentOp( (;Ag=Ag₀,_...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(Cℓ_fg.ℓ , Ag*(Cℓ_fg.Cℓ)) ) ) )
+        # Cg = ParamDependentOp( (;Ag=Ag₀,_...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(Cℓ_fg.ℓ , Ag*(Cℓ_fg.Cℓ)) ) ) )
+        Cg0 = Cℓ_to_Cov(  :I, proj, (Cℓ_fg ) )
+        Cg = let Cg0 = Cg0
+            ParamDependentOp( (;Ag=Ag₀,_...)->Diagonal(Ag*Cg0) )
+        end
     else
         Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , ℓedges_g, :Ag))
     end
