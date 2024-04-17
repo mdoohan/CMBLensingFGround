@@ -471,7 +471,7 @@ function load_fground_ds(;
         # Cg = ParamDependentOp( (;Ag=Ag₀,_...)-> Cℓ_to_Cov(  :I, proj, (Cℓs(Cℓ_fg.ℓ , Ag*(Cℓ_fg.Cℓ)) ) ) )
         Cg0 = Cℓ_to_Cov(  :I, proj, (Cℓ_fg ) )
         Cg = let Cg0 = Cg0
-            ParamDependentOp( (;Ag=Ag₀,_...)->Diagonal(Ag*Cg0) )
+            ParamDependentOp( (;Ag=Ag₀,_...)->Ag*Cg0 )
         end
     else
         Cg = Cℓ_to_Cov(:I, proj,( Cℓ_fg , ℓedges_g, :Ag))
