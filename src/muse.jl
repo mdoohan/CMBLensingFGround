@@ -43,7 +43,12 @@ function MuseInference.∇θ_logLike(prob::CMBLensingMuseProblem, d, z, θ, θ_s
 end
 
 function MuseInference.sample_x_z(prob::CMBLensingMuseProblem, rng::AbstractRNG, θ) 
-    sim = simulate(rng, prob.ds_for_sims, θ = mergeθ(prob, θ))
+    if prob.ds.d.Nx == 0.5 .* prob.ds_for_sims.d.Nx
+        sim = simulate_from_2N(;ds_2N=prob.ds_for_sims, ds=prob.ds, rng, θ)# =MuseInference.mergeθ(prob, θ))
+    else
+        sim = simulate(rng, prob.ds, θ)# = MuseInference.mergeθ(prob, θ))
+    end
+    
     if prob.latent_vars == nothing
         # this is a guess which might not work for everything necessarily
         z = LenseBasis(FieldTuple(delete(sim, (:f̃, :d, :μ))) )
@@ -54,10 +59,47 @@ function MuseInference.sample_x_z(prob::CMBLensingMuseProblem, rng::AbstractRNG,
     (;x, z)
 end
 
+function simulate_from_2N(;
+    ds_2N::DataSet,
+    ds::DataSet, 
+    rng::AbstractRNG, 
+    θ
+)
+    proj_ = ProjLambert(; Nx=ds.d.Nx, Ny=ds.d.Ny, θpix=ds.d.θpix, 
+        T=eltype(ds.d), storage=typeof(ds.d.arr).name.wrapper, rotator=(0,90,0))
 
-function MuseInference.sample_x_z(prob::CMBLensingMuseProblem{<:FGroundDataSet}, rng::AbstractRNG, θ) 
-    s = simulate(rng, prob.ds_for_sims, θ = CMBLensing.mergeθ(prob, θ))
-    (;x=s.d, z=LenseBasis(FieldTuple(;f=s.f, ϕ=s.ϕ, g=s.g)))
+    g_def=true
+    try
+        @unpack f,ϕ,g = simulate(rng, ds_2N; θ)
+        d = Map(ds_2N.M*(ds_2N.L(ϕ)*f + g))
+        g_def=true
+    catch
+        @unpack f,ϕ = simulate(rng, ds_2N; θ)
+        d = Map(ds_2N.M*(ds_2N.L(ϕ)*f))
+        g_def=false
+    end
+
+    d = d.arr[1:proj_.Nx,1:proj_.Nx]
+    d=Map(ds.M_NxN*FlatMap(d,proj_)) + Map(simulate(rng,ds.Cn)) 
+
+    κ_2N = -0.5*∇²*ϕ
+    κ = FlatMap(Map(κ_2N).arr[1:proj_.Nx,1:proj_.Nx],proj_)
+    ϕ = ∇²\κ*-2
+
+    f = FlatMap(Map(f).arr[1:proj_.Nx,1:proj_.Nx],proj_)
+    g_def ? (g = FlatMap(Map(g).arr[1:proj_.Nx,1:proj_.Nx],proj_)) : g=nothing
+    return (;d, f, ϕ, g, f̃=nothing)
+end
+
+function MuseInference.sample_x_z(prob::CMBLensingMuseProblem{<:FGroundDataSet}, rng::AbstractRNG, θ)
+if prob.ds.d.Nx == 0.5 .* prob.ds_for_sims.d.Nx
+    sim = simulate_from_2N(;ds_2N=prob.ds_for_sims, ds=prob.ds, rng, θ)# =MuseInference.mergeθ(prob, θ))
+else
+    sim = simulate(rng, prob.ds_for_sims, θ)# = MuseInference.mergeθ(prob, θ))
+end
+z = delete(sim, :d,:f̃)
+x = sim.d
+(;x, z)
 end
 
 function MuseInference.ẑ_at_θ(prob::CMBLensingMuseProblem, d, zguess, θ; ∇z_logLike_atol=nothing)

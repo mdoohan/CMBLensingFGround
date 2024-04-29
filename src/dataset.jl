@@ -56,13 +56,13 @@ end
     L  = LenseFlow   # lensing operator, possibly cached for memory reuse
     Nϕ = nothing     # some estimate of the ϕ noise, used in several places for preconditioning
     σ²κ = nothing    # Width of <κ> logprior
+    M_NxN=nothing    # Masking which is done after cutting from 2Nx2N maps. Needed for MuseInference.sample_x_z
 end
 
 @composite @kwdef mutable struct FGroundDataSet <: DataSet
     BaseDataSet...
     Cg               # Foreground covariance, just poisson for now 
     Ng               # Initial noise estimate for hessian preconditioner
-    M_NxN=nothing    # Masking which is done after cutting from 2Nx2N maps. Needed for MuseInference.sample_x_z
 end
 
 @fwdmodel function (ds::FGroundDataSet)(; f, ϕ, g, θ=(;), d=ds.d)
@@ -507,6 +507,105 @@ function load_fground_ds(;
     return (;ds,f,g,ϕ, proj)
 end
 
+function load_nofground_ds(;
+    
+    # basic configuration
+    θpix,
+    Nside,
+    pol,
+    T = Float64,
+    storage = Array,
+    rotator = (0,90,0),
+    Nbatch = nothing,
+    
+    # noise parameters, or set Cℓn or even Cn directly
+    μKarcminT = 3,
+    ℓknee = 100,
+    αknee = 3,
+    Cℓn = nothing,
+    Cn = nothing,
+    
+    # beam parameters, or set B directly
+    beamFWHM = 0,
+    B = nothing, B̂ = nothing,
+    
+    # mask parameters, or set M directly
+    pixel_mask_kwargs = nothing,
+    bandpass_mask = LowPass(3000),
+    M = nothing, M̂ = nothing,
+
+    # theory
+    Cℓ = nothing,
+    fiducial_θ = (;),
+    rfid = nothing,
+    
+    seed = 42,
+    rng = nothing,
+    D = nothing,
+    G = nothing,
+    Nϕ_fac = 2,
+    L = LenseFlow(11),
+
+    σ²κ = nothing,
+
+    # Bin edges for fields
+    ℓedges_ϕ = nothing,
+    ℓedges_T = nothing
+)
+    
+    ℓedges_ϕ == nothing ? ( log_edges = range(log(150),log(3000), 13) ; ℓedges_ϕ = T.(exp.(log_edges))  ) : ()
+    ℓedges_ϕ = T.(ℓedges_ϕ) 
+ 
+    RNG = @something(rng, MersenneTwister(seed))
+    ################### Baseline Sim from CMBLensing #####################
+    @unpack ds,proj = load_sim(;
+        # basic configuration
+    θpix, Nside, pol, T, storage, rotator, Nbatch,
+    
+    # noise parameters, or set Cℓn or even Cn directly
+    μKarcminT, ℓknee, αknee, Cℓn, Cn,
+    
+    # beam parameters, or set B directly
+    beamFWHM, B, B̂,
+    
+    # mask parameters, or set M directly
+    pixel_mask_kwargs, bandpass_mask,
+    M, M̂,
+
+    # theory
+    Cℓ, fiducial_θ, rfid,
+
+    rng = RNG, D, G, Nϕ_fac, L
+    );
+    
+    
+    ###########################  Bandpower dependent Cϕ and Cf
+    ########################### Mixing matrix G, also depends on Aϕ
+
+    Nϕ=ds.Nϕ # QE noise est : Nϕ=quadratic_estimate(ds).Nϕ / Nϕ_fac
+    nbins_ϕ = length(ℓedges_ϕ)-1
+    
+    Cϕ=Cℓ_to_Cov(:I, proj,(Cℓ.total.ϕϕ, ℓedges_ϕ, :Aϕ))
+    G₀ = sqrt(I + Nϕ * pinv(Cϕ()))
+    Aϕ₀= ones(nbins_ϕ)
+    G = ParamDependentOp((;Aϕ=Aϕ₀, _...)->(pinv(G₀) * sqrt(I + 2 * Nϕ * pinv(Cϕ(Aϕ=Aϕ)))))
+    
+
+    ℓedges_T==nothing ? Cf=ds.Cf : Cf=Cℓ_to_Cov(:I, proj,(Cℓ.unlensed_scalar.TT, ℓedges_T, :AT))
+    ########################## Simulate data
+    
+    
+    ######## Include Cf̃ in dataset
+    Cf̃  = Cℓ_to_Cov(:I, proj,Cℓ.total.TT)
+
+    ######
+    ds = BaseDataSet(;Cf, Cf̃, Cϕ, Cn=ds.Cn, Cn̂=ds.Cn̂, M=ds.M, M̂=ds.M̂, B=ds.B, B̂=ds.B̂, Nϕ=ds.Nϕ, L=ds.L, D=ds.D, G, σ²κ)
+    @unpack f,ϕ,d = simulate(RNG,ds)
+    ds.d = d;
+    
+    
+    return (;ds,f,ϕ, proj)
+end
 
 function load_nolensing_sim(; 
     lensed_covariance = false, 
